@@ -2,7 +2,7 @@ AC_INIT([spindle], m4_esyscmd([tr -d '\n' < VERSION]), m4_esyscmd([tr -d '\n' < 
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([scripts])
 AC_CANONICAL_SYSTEM
-AM_INIT_AUTOMAKE([-Wall -Werror foreign -Wno-portability])
+AM_INIT_AUTOMAKE([foreign subdir-objects])
 AM_SILENT_RULES([yes])
 AM_PROG_AR
 AC_PROG_CC
@@ -19,9 +19,6 @@ m4_include([configure.common.ac])
 m4_include([m4/ax_tls.m4])
 m4_include([m4/lmon.m4])
 AX_TLS
-
-#Default flags
-AC_SUBST([AM_CFLAGS], [-Wall])
 
 AC_ARG_WITH(testrm,
             [AS_HELP_STRING([--with-testrm=ARG],[Resource manager to use for tests (valid options are 'slurm' and 'flux')])],

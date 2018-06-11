@@ -4,6 +4,7 @@ echo Bootstrap in spindle
 autoheader
 autoconf
 aclocal
+automake --add-missing
 automake
 
 echo Bootstrap in client
