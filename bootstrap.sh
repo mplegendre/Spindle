@@ -30,3 +30,5 @@ autoconf
 aclocal
 automake
 cd ../..
+touch configure
+
