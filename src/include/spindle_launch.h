@@ -61,6 +61,7 @@ extern "C" {
 #define OPT_OFF        (1 << 30)            /* Turns spindle off, disabling everything */
 #define OPT_PATCHLDSO  (1 << 31)            /* Enables patching of ld.so to intercept stat calls */
 #define OPT_CRASH_HANDLER ((opt_t) 1 << 32) /* Enables crash handler with coredump deduplication */
+#define OPT_CALCTLS       ((opt_t) 1 << 33) /* Enable spindle calculation of IE TLS instead of GLIBC calculation */
 
 #define OPT_SET_SEC(OPT, X) OPT |= (X << 19)
 #define OPT_GET_SEC(OPT) ((OPT >> 19) & 7)

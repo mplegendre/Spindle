@@ -118,12 +118,30 @@ static void propogateEnvironmentStr(char *const orig_envp[], char **new_envp, in
 {
    char *value;
 
-   value = orig_getenv ? orig_getenv(var) : getenv(var);
-   if (!value)
+   /* For GLIBC_TUNABLES, always use regular getenv since we may have just set it with setenv */
+   if (strcmp(var, "GLIBC_TUNABLES") == 0) {
+      value = getenv(var);
+   }
+   else {
+      value = orig_getenv ? orig_getenv(var) : getenv(var);
+   }
+   if (!value) {
+      if (strcmp(var, "GLIBC_TUNABLES") == 0)
+         debug_printf("propogateEnvironmentStr: GLIBC_TUNABLES not in environment\n");
       return;
-   if (envpContains(orig_envp, var))
-      return;
-   debug_printf3("Adding environment variable %s to env\n", var);
+   }
+   if (envpContains(orig_envp, var)) {
+      /* Special case: GLIBC_TUNABLES may need to be updated for static TLS */
+      if (strcmp(var, "GLIBC_TUNABLES") != 0)
+         return;
+      debug_printf("Replacing GLIBC_TUNABLES in env with value: %s\n", value);
+   }
+   else {
+      if (strcmp(var, "GLIBC_TUNABLES") == 0)
+         debug_printf("Adding GLIBC_TUNABLES to env with value: %s\n", value);
+      else
+         debug_printf3("Adding environment variable %s to env\n", var);
+   }
    new_envp[*pos] = allocEnvAssignmentStr(var, value);
    (*pos)++;
 }
@@ -167,7 +185,6 @@ static char **updateEnvironment(char **envp, int *num_modified, int propogate_sp
    if (num_modified && !envp) {
       envp = empty_env;
    }
-
    if (!propogate_spindle) {
       if (!envp) {
          debug_printf2("Removing spindle from environment by unsetenv\n");
@@ -196,10 +213,10 @@ static char **updateEnvironment(char **envp, int *num_modified, int propogate_sp
    if (envp) {
       debug_printf2("Propogating spindle environment by copying it to new envp list\n");
       for (cur = (char **) envp; *cur; cur++, orig_size++);
-      new_size = orig_size + 9;
+      new_size = orig_size + 10;
       newenv = (char **) malloc(new_size * sizeof(char*));
-      
-      propogateEnvironmentStr(envp, newenv, &pos, "SPINDLE");   
+
+      propogateEnvironmentStr(envp, newenv, &pos, "SPINDLE");
       propogateEnvironmentStr(envp, newenv, &pos, "LD_AUDIT");
       propogateEnvironmentStr(envp, newenv, &pos, "LDCS_COMMPATH");
       propogateEnvironmentStr(envp, newenv, &pos, "LDCS_CONNECTION");
@@ -207,8 +224,12 @@ static char **updateEnvironment(char **envp, int *num_modified, int propogate_sp
       propogateEnvironmentStr(envp, newenv, &pos, "LDCS_OPTIONS");
       propogateEnvironmentStr(envp, newenv, &pos, "LDCS_CACHESIZE");
       propogateEnvironmentStr(envp, newenv, &pos, "LDCS_NUMBER");
+      propogateEnvironmentStr(envp, newenv, &pos, "GLIBC_TUNABLES");
       *num_modified = pos;
       for (cur = (char **) envp; *cur; cur++) {
+         /* Skip GLIBC_TUNABLES if it was in envp, as we may have updated it */
+         if (strIsPrefix("GLIBC_TUNABLES=", *cur))
+            continue;
          newenv[pos++] = *cur;
       }
       newenv[pos++] = NULL;
@@ -244,11 +265,12 @@ static void cleanEnvironment(char **envp, int num_modified) {
 
 static int prep_exec(const char *filepath, char **argv,
                      char *newname, char *newpath, int newpath_size,
-                     char ***new_argv, int errcode, char *found_from_pathsearch)
+                     char ***new_argv, int errcode, char *orig_file_abspath, char *path_component, char **envp)
 {
    int result;
    char *interp_name;
    int i;
+   char *glibc_tunables_env_value = NULL;
 
    debug_printf3("prep_exec for filepath %s to newpath %s\n", filepath, newpath);
    if (spindle_debug_prints >= 3) {
@@ -257,8 +279,7 @@ static int prep_exec(const char *filepath, char **argv,
          debug_printf3("%d. %s\n", i, argv[i]);
       }
    }
-   
-   
+
    if (errcode == EACCES) {
       strncpy(newpath, filepath, newpath_size);
       newpath[newpath_size-1] = '\0';
@@ -272,14 +293,23 @@ static int prep_exec(const char *filepath, char **argv,
       set_errno(errcode);
       return -1;
    }
-   
+
    if (!newname) {
       snprintf(newpath, newpath_size, "%s/%s", NOT_FOUND_PREFIX, filepath);
       newpath[newpath_size-1] = '\0';
       return 0;
    }
 
-   result = adjust_if_script(filepath, newname, argv, &interp_name, new_argv, found_from_pathsearch);
+   calc_static_tls(filepath, path_component, (const char **)envp, &glibc_tunables_env_value, NULL);
+   if (glibc_tunables_env_value) {
+      debug_printf("Setting GLIBC_TUNABLES to '%s' for %s to fix static tls\n", glibc_tunables_env_value, filepath);
+      setenv("GLIBC_TUNABLES", glibc_tunables_env_value, 1);
+   }
+   else {
+      debug_printf("calc_static_tls returned NULL for GLIBC_TUNABLES for %s\n", filepath);
+   }
+
+   result = adjust_if_script(filepath, newname, argv, &interp_name, new_argv, orig_file_abspath);
    if (opts & OPT_REMAPEXEC) {
       debug_printf2("exec'ing original path %s because we're running in remap mode\n", filepath);
       strncpy(newpath, filepath, newpath_size);
@@ -379,14 +409,15 @@ static int find_exec(const char *filepath, char **argv, char *newpath, int newpa
    get_relocated_file(ldcsid, (char *) filepath, 1, &newname, &errcode, NULL);
    debug_printf("Exec file request returned %s -> %s with errcode %d\n",
                 filepath, newname ? newname : "NULL", errcode);
-       
-   return prep_exec(filepath, argv, newname, newpath, newpath_size, new_argv, errcode, NULL);
+
+   return prep_exec(filepath, argv, newname, newpath, newpath_size, new_argv, errcode, NULL, NULL, envp);
 }
 
 static int find_exec_pathsearch(const char *filepath, char **argv, char *newpath, int newpath_size, char ***new_argv, char **envp, int *propogate_spindle)
 {
    char *newname = NULL;
    char *orig_file_abspath = NULL;
+   char *path_component = NULL;
    int result;
    int errcode;
    int reloc_exec;
@@ -415,9 +446,9 @@ static int find_exec_pathsearch(const char *filepath, char **argv, char *newpath
       newpath[newpath_size-1] = '\0';
       return 0;
    }
-   
+
    sync_cwd();
-   result = exec_pathsearch(ldcsid, filepath, &newname, &errcode, &orig_file_abspath);
+   result = exec_pathsearch(ldcsid, filepath, &newname, &errcode, &orig_file_abspath, &path_component);
    if (result == -1) {
       set_errno(errcode);
       return -1;
@@ -425,7 +456,7 @@ static int find_exec_pathsearch(const char *filepath, char **argv, char *newpath
    debug_printf("Exec file request returned %s -> %s with errcode %d\n",
                 filepath, newname ? newname : "NULL", errcode);
 
-   return prep_exec(filepath, argv, newname, newpath, newpath_size, new_argv, errcode, orig_file_abspath);
+   return prep_exec(filepath, argv, newname, newpath, newpath_size, new_argv, errcode, orig_file_abspath, path_component, envp);
 }
 
 int execl_wrapper(const char *path, const char *arg0, ...)

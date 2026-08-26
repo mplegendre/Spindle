@@ -158,6 +158,12 @@ using namespace std;
 #define PYTHON_PREFIX_DEFAULT ""
 #endif
 
+#if defined(STATIC_TLS_ALLOC_BUG)
+#define DEFAULT_CALC_TLS "true"
+#else
+#define DEFAULT_CALC_TLS "false"
+#endif
+
 #if BINARY_PATCH_LDSO == 1
 #define DEFAULT_PATCH_LDSO "true"
 #else
@@ -310,7 +316,9 @@ void initOptionsList()
    { confRshCommand, "rsh-command", shortRSHCmd, groupMisc, cvString, {}, RSHCMD_STR,
      "The command to run rsh/ssh, when doing RSH startup mode." },
    { confCrashDedup, "crash-dedup", shortCrashDedup, groupMisc, cvBool, {}, DEFAULT_CRASH_DEDUP_STR,
-     "Deduplicate coredumps by crash site, emitting only one coredump per unique site." }
+     "Deduplicate coredumps by crash site, emitting only one coredump per unique site." },
+   { confCalcTLS, "calc-tls", shortCalcTLS, groupMisc, cvBool, {}, DEFAULT_CALC_TLS,
+     "Enable spindle's manual calculation of an application's IE TLS to work around a glibc bug." }
   } );
 }
 
@@ -1019,6 +1027,8 @@ bool ConfigMap::toSpindleArgs(spindle_args_t &args, bool alloc_strs) const
          case confCrashDedup:
             setopt(args.opts, OPT_CRASH_HANDLER, boolresult);
             break;
+         case confCalcTLS:
+            setopt(args.opts, OPT_CALCTLS, boolresult);
       }
    }
 

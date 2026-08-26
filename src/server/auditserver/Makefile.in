@@ -126,7 +126,9 @@ am_libserverbase_la_OBJECTS = ldcs_audit_server_client_cb.lo \
 	ldcs_audit_server_crash_handler.lo ldcs_elf_read.lo \
 	ldcs_audit_server_requestors.lo ldcs_audit_server_numa.lo \
 	msgbundle.lo parse_mounts.lo cleanup_proc.lo translate_maps.lo \
-	force_exit.lo $(top_builddir)/../utils/fileutil.lo
+	force_exit.lo filemngt_calc_static_tls.lo \
+	$(top_builddir)/../utils/fileutil.lo \
+	$(top_builddir)/../utils/static_tls.lo
 libserverbase_la_OBJECTS = $(am_libserverbase_la_OBJECTS)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
@@ -144,7 +146,10 @@ DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/../../scripts/depcomp
 am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = $(top_builddir)/../utils/$(DEPDIR)/fileutil.Plo \
-	./$(DEPDIR)/cleanup_proc.Plo ./$(DEPDIR)/force_exit.Plo \
+	$(top_builddir)/../utils/$(DEPDIR)/static_tls.Plo \
+	./$(DEPDIR)/cleanup_proc.Plo \
+	./$(DEPDIR)/filemngt_calc_static_tls.Plo \
+	./$(DEPDIR)/force_exit.Plo \
 	./$(DEPDIR)/ldcs_audit_server_client_cb.Plo \
 	./$(DEPDIR)/ldcs_audit_server_crash_handler.Plo \
 	./$(DEPDIR)/ldcs_audit_server_filemngt.Plo \
@@ -378,10 +383,10 @@ top_srcdir = @top_srcdir@
 
 #noinst_LTLIBRARIES = libaudit_server_msocket.la libaudit_server_cobo.la libserverbase.la
 noinst_LTLIBRARIES = libaudit_server_cobo.la libserverbase.la
-AM_CPPFLAGS = -I$(top_srcdir)/comlib -I$(top_srcdir)/cache -I$(top_srcdir)/../cobo -I$(top_srcdir)/../logging -I$(top_srcdir)/../include -I$(top_srcdir)/../utils -DLIBEXECDIR=\"$(pkglibexecdir)\"
-LDADD = $(top_builddir)/cache/libldcs_cache.la -lrt
+AM_CPPFLAGS = -I$(top_srcdir)/comlib -I$(top_srcdir)/cache -I$(top_srcdir)/../cobo -I$(top_srcdir)/../logging -I$(top_srcdir)/../include -I$(top_srcdir)/../utils -DLIBEXECDIR=\"$(pkglibexecdir)\" -DPROGLIBDIR=\"$(pkglibdir)\"
+LDADD = $(top_builddir)/cache/libldcs_cache.la -lrt 
 #AM_LDFLAGS = -all-static
-libserverbase_la_SOURCES = ldcs_audit_server_client_cb.c ldcs_audit_server_server_cb.c ldcs_audit_server_process.c ldcs_audit_server_filemngt.c ldcs_audit_server_handlers.c ldcs_audit_server_crash_handler.c ldcs_elf_read.c ldcs_audit_server_requestors.c ldcs_audit_server_numa.c msgbundle.c parse_mounts.cc cleanup_proc.cc translate_maps.c force_exit.c $(top_srcdir)/../utils/fileutil.c
+libserverbase_la_SOURCES = ldcs_audit_server_client_cb.c ldcs_audit_server_server_cb.c ldcs_audit_server_process.c ldcs_audit_server_filemngt.c ldcs_audit_server_handlers.c ldcs_audit_server_crash_handler.c ldcs_elf_read.c ldcs_audit_server_requestors.c ldcs_audit_server_numa.c msgbundle.c parse_mounts.cc cleanup_proc.cc translate_maps.c force_exit.c filemngt_calc_static_tls.c $(top_srcdir)/../utils/fileutil.c $(top_srcdir)/../utils/static_tls.c
 libserverbase_la_LIBADD = -lpthread
 
 #libaudit_server_msocket_la_SOURCES = ldcs_audit_server_md_msocket.c ldcs_audit_server_md_msocket_util.c ldcs_audit_server_md_msocket_topo.c 
@@ -446,6 +451,9 @@ $(top_builddir)/../utils/$(DEPDIR)/$(am__dirstamp):
 $(top_builddir)/../utils/fileutil.lo:  \
 	$(top_builddir)/../utils/$(am__dirstamp) \
 	$(top_builddir)/../utils/$(DEPDIR)/$(am__dirstamp)
+$(top_builddir)/../utils/static_tls.lo:  \
+	$(top_builddir)/../utils/$(am__dirstamp) \
+	$(top_builddir)/../utils/$(DEPDIR)/$(am__dirstamp)
 
 libserverbase.la: $(libserverbase_la_OBJECTS) $(libserverbase_la_DEPENDENCIES) $(EXTRA_libserverbase_la_DEPENDENCIES) 
 	$(AM_V_CXXLD)$(CXXLINK)  $(libserverbase_la_OBJECTS) $(libserverbase_la_LIBADD) $(LIBS)
@@ -459,7 +467,9 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/../utils/$(DEPDIR)/fileutil.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/../utils/$(DEPDIR)/static_tls.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cleanup_proc.Plo@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/filemngt_calc_static_tls.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/force_exit.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ldcs_audit_server_client_cb.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ldcs_audit_server_crash_handler.Plo@am__quote@ # am--include-marker
@@ -664,7 +674,9 @@ clean-am: clean-generic clean-libtool clean-noinstLTLIBRARIES \
 
 distclean: distclean-am
 		-rm -f $(top_builddir)/../utils/$(DEPDIR)/fileutil.Plo
+	-rm -f $(top_builddir)/../utils/$(DEPDIR)/static_tls.Plo
 	-rm -f ./$(DEPDIR)/cleanup_proc.Plo
+	-rm -f ./$(DEPDIR)/filemngt_calc_static_tls.Plo
 	-rm -f ./$(DEPDIR)/force_exit.Plo
 	-rm -f ./$(DEPDIR)/ldcs_audit_server_client_cb.Plo
 	-rm -f ./$(DEPDIR)/ldcs_audit_server_crash_handler.Plo
@@ -725,7 +737,9 @@ installcheck-am:
 
 maintainer-clean: maintainer-clean-am
 		-rm -f $(top_builddir)/../utils/$(DEPDIR)/fileutil.Plo
+	-rm -f $(top_builddir)/../utils/$(DEPDIR)/static_tls.Plo
 	-rm -f ./$(DEPDIR)/cleanup_proc.Plo
+	-rm -f ./$(DEPDIR)/filemngt_calc_static_tls.Plo
 	-rm -f ./$(DEPDIR)/force_exit.Plo
 	-rm -f ./$(DEPDIR)/ldcs_audit_server_client_cb.Plo
 	-rm -f ./$(DEPDIR)/ldcs_audit_server_crash_handler.Plo

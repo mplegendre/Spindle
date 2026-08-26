@@ -25,6 +25,7 @@ extern "C" {
 #include "spindle_launch.h"
 #include "stat_cache.h"
 #include "force_exit.h"
+#include "static_tls.h"   
 
 typedef void* requestor_list_t;
 
@@ -94,6 +95,7 @@ struct ldcs_client_struct
   int                  is_loader;
   int                  is_dso; 
   int                  numa_node;
+  static_tls_info_t    *tls_info;
   char                 query_filename[MAX_PATH_LEN+1];    /* hash 1st key */
   char                 query_dirname[MAX_PATH_LEN+1];     /* hast 2nd key */
   char                 query_globalpath[MAX_PATH_LEN+2];  /* path to file in global fs (dirname+filename) */
@@ -183,6 +185,8 @@ struct ldcs_process_data_struct
   requestor_list_t completed_lstat_requests;
   requestor_list_t pending_ldso_requests;
   requestor_list_t completed_ldso_requests;
+  requestor_list_t pending_tls_requests;
+  requestor_list_t completed_tls_requests; 
    
   crash_site_entry_t *crash_sites;
   int crash_sites_count;

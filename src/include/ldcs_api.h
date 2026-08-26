@@ -89,6 +89,10 @@ typedef enum {
    LDCS_MSG_CHOSEN_CACHEPATH,
    LDCS_MSG_CRASH_REPORT,
    LDCS_MSG_CRASH_RESPONSE,
+   LDCS_MSG_CLIENT_STATICTLS,
+   LDCS_MSG_CLIENT_STATICTLS_RESP,
+   LDCS_MSG_STATICTLS,
+   LDCS_MSG_STATICTLS_RESP,
    LDCS_MSG_UNKNOWN
 } ldcs_message_ids_t;
 
@@ -110,7 +114,6 @@ typedef  enum {
    LDCS_MSG_MDIR_DOWN,
    LDCS_MSG_MDIR_UNKNOWN
 } ldcs_msg_mdir_t;
-
 
 /* source, dest: -1: frontend 0...10000: MD server, > 10000 local client   */
 struct ldcs_message_header_struct

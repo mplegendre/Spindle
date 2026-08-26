@@ -22,6 +22,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <assert.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -34,7 +35,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include "exec_util.h"
 #include "shmcache.h"
 #include "parseloc.h"
-
+#include "client_libraries.h"
 #include "config.h"
 
 #if !defined(LIBEXECDIR)
@@ -64,27 +65,6 @@ static char *cachesize_s;
 static char *executable_abspath;
 
 opt_t opts;
-
-char libstr_socket_subaudit[] = PROGLIBDIR "/libspindle_subaudit_socket.so";
-char libstr_pipe_subaudit[] = PROGLIBDIR "/libspindle_subaudit_pipe.so";
-char libstr_biter_subaudit[] = PROGLIBDIR "/libspindle_subaudit_biter.so";
-
-char libstr_socket_audit[] = PROGLIBDIR "/libspindle_audit_socket.so";
-char libstr_pipe_audit[] = PROGLIBDIR "/libspindle_audit_pipe.so";
-char libstr_biter_audit[] = PROGLIBDIR "/libspindle_audit_biter.so";
-
-#if defined(COMM_SOCKET)
-static char *default_audit_libstr = libstr_socket_audit;
-static char *default_subaudit_libstr = libstr_socket_subaudit;
-#elif defined(COMM_PIPES)
-static char *default_audit_libstr = libstr_pipe_audit;
-static char *default_subaudit_libstr = libstr_pipe_subaudit;
-#elif defined(COMM_BITER)
-static char *default_audit_libstr = libstr_biter_audit;
-static char *default_subaudit_libstr = libstr_biter_subaudit;
-#else
-#error Unknown connection type
-#endif
 
 extern int spindle_mkdir(char *path);
 extern char *parse_location(char *loc, number_t number);
@@ -229,14 +209,27 @@ static void launch_daemon( void )
 static void get_executable()
 {
    int errcode = 0;
+   char *glibc_tunables_env_value = NULL;
+   char *path_component = NULL;
+
    if (!(opts & OPT_RELOCAOUT) || (opts & OPT_REMAPEXEC)) {
       debug_printf3("Using default executable %s\n", *cmdline);
       executable = *cmdline;
+      path_component = find_path_component(ldcsid, *cmdline, NULL);
+      calc_static_tls(*cmdline, path_component, NULL, &glibc_tunables_env_value, NULL);
+      if (glibc_tunables_env_value) {
+         debug_printf2("Setting GLIBC_TUNABLES to '%s' for %s to fix static tls\n", glibc_tunables_env_value, *cmdline);
+         setenv("GLIBC_TUNABLES", glibc_tunables_env_value, 1);
+      }
+      if (path_component) {
+         free(path_component);
+         path_component = NULL;
+      }
       return;
    }
 
    debug_printf2("Sending request for executable %s\n", *cmdline);
-   exec_pathsearch(ldcsid, *cmdline, &executable, &errcode, &executable_abspath);
+   exec_pathsearch(ldcsid, *cmdline, &executable, &errcode, &executable_abspath, &path_component);
 
    if (executable == NULL) {
       executable = *cmdline;
@@ -245,6 +238,16 @@ static void get_executable()
    else {
       debug_printf("Relocated executable %s to %s\n", *cmdline, executable);
       chmod(executable, 0700);
+   }
+
+   calc_static_tls(*cmdline, path_component, NULL, &glibc_tunables_env_value, NULL);
+   if (glibc_tunables_env_value) {
+      debug_printf2("Setting GLIBC_TUNABLES to '%s' for %s to fix static tls\n", glibc_tunables_env_value, *cmdline);
+      setenv("GLIBC_TUNABLES", glibc_tunables_env_value, 1);
+   }
+
+   if (path_component) {
+      free(path_component);
    }
 }
 

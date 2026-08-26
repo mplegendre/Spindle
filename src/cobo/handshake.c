@@ -1084,7 +1084,7 @@ static int key_decrypt_packet(unsigned char *key, unsigned int key_len,
 {
 #if defined(GCRYPT)
    unsigned char *calcd_hash_val = NULL, *recvd_hash_val;
-   int result, return_result, hash_val_size;
+   int result, return_result = 0, hash_val_size;
    int i;
   
    if (recvd_buffer_size < packet_size) {
