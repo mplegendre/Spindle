@@ -167,7 +167,6 @@ static char **updateEnvironment(char **envp, int *num_modified, int propogate_sp
    if (num_modified && !envp) {
       envp = empty_env;
    }
-
    if (!propogate_spindle) {
       if (!envp) {
          debug_printf2("Removing spindle from environment by unsetenv\n");
@@ -249,6 +248,7 @@ static int prep_exec(const char *filepath, char **argv,
    int result;
    char *interp_name;
    int i;
+   char *glibc_tunables_env_value;
 
    debug_printf3("prep_exec for filepath %s to newpath %s\n", filepath, newpath);
    if (spindle_debug_prints >= 3) {
@@ -257,8 +257,7 @@ static int prep_exec(const char *filepath, char **argv,
          debug_printf3("%d. %s\n", i, argv[i]);
       }
    }
-   
-   
+
    if (errcode == EACCES) {
       strncpy(newpath, filepath, newpath_size);
       newpath[newpath_size-1] = '\0';
@@ -279,6 +278,11 @@ static int prep_exec(const char *filepath, char **argv,
       return 0;
    }
 
+   calc_static_tls(filepath, NULL, &glibc_tunables_env_value, NULL);
+   if (glibc_tunables_env_value) {
+      setenv("GLIBC_TUNABLES", glibc_tunables_env_value, 1);
+   }
+   
    result = adjust_if_script(filepath, newname, argv, &interp_name, new_argv, found_from_pathsearch);
    if (opts & OPT_REMAPEXEC) {
       debug_printf2("exec'ing original path %s because we're running in remap mode\n", filepath);

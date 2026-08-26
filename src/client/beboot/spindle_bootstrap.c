@@ -33,7 +33,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include "client_api.h"
 #include "exec_util.h"
 #include "shmcache.h"
-
+#include "client_libraries.h"
 #include "config.h"
 
 #if !defined(LIBEXECDIR)
@@ -63,27 +63,6 @@ static char *cachesize_s;
 static char *executable_abspath;
 
 opt_t opts;
-
-char libstr_socket_subaudit[] = PROGLIBDIR "/libspindle_subaudit_socket.so";
-char libstr_pipe_subaudit[] = PROGLIBDIR "/libspindle_subaudit_pipe.so";
-char libstr_biter_subaudit[] = PROGLIBDIR "/libspindle_subaudit_biter.so";
-
-char libstr_socket_audit[] = PROGLIBDIR "/libspindle_audit_socket.so";
-char libstr_pipe_audit[] = PROGLIBDIR "/libspindle_audit_pipe.so";
-char libstr_biter_audit[] = PROGLIBDIR "/libspindle_audit_biter.so";
-
-#if defined(COMM_SOCKET)
-static char *default_audit_libstr = libstr_socket_audit;
-static char *default_subaudit_libstr = libstr_socket_subaudit;
-#elif defined(COMM_PIPES)
-static char *default_audit_libstr = libstr_pipe_audit;
-static char *default_subaudit_libstr = libstr_pipe_subaudit;
-#elif defined(COMM_BITER)
-static char *default_audit_libstr = libstr_biter_audit;
-static char *default_subaudit_libstr = libstr_biter_subaudit;
-#else
-#error Unknown connection type
-#endif
 
 extern int spindle_mkdir(char *path);
 extern char *parse_location(char *loc, number_t number);
@@ -231,8 +210,15 @@ static void launch_daemon(char *commpath)
 }
 
 static void get_executable()
-{
+{   
    int errcode = 0;
+   char *glibc_tunables_env_value = NULL;
+   
+   calc_static_tls(*cmdline, NULL, &glibc_tunables_env_value, NULL);
+   if (glibc_tunables_env_value) {
+      setenv("GLIBC_TUNABLES", glibc_tunables_env_value, 1);
+   }
+   
    if (!(opts & OPT_RELOCAOUT) || (opts & OPT_REMAPEXEC)) {
       debug_printf3("Using default executable %s\n", *cmdline);
       executable = *cmdline;

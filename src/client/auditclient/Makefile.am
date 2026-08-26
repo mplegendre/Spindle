@@ -14,7 +14,7 @@ AM_CFLAGS = -fvisibility=hidden
 
 AM_CPPFLAGS = -I$(top_srcdir)/../logging -I$(top_srcdir)/../include -I$(top_srcdir)/client -I$(top_srcdir)/client_comlib -I$(top_srcdir)/crash_handler
 
-BASE_SRCS = auditclient.c auditclient_common.c patch_linkmap.c redirect.c bindgot.c writablegot.c patch_bad_dtv.c malloc_wrapper.c fixlocale.c
+BASE_SRCS = auditclient.c auditclient_common.c patch_linkmap.c redirect.c bindgot.c writablegot.c patch_bad_dtv.c malloc_wrapper.c fixlocale.c tlsalign.c
 if X86_64_BLD
 ARCH_SRCS = auditclient_x86_64.c 
 endif

@@ -20,7 +20,8 @@ INTERCEPT_SRCS = intercept_open.c intercept_exec.c intercept_stat.c intercept_re
 BASE_SRCS = client.c \
             lookup.c should_intercept.c exec_util.c remap_exec.c \
             lookup_libc.c adjust_argv.c $(top_srcdir)/../utils/parseloc.c \
-            $(top_srcdir)/../utils/getcpu.c
+            $(top_srcdir)/../utils/getcpu.c \
+            $(top_srcdir)/../utils/static_tls.c
 
 BASE_SRCS += $(top_srcdir)/crash_handler/crash_io.c \
              $(top_srcdir)/crash_handler/crash_fmt.c \

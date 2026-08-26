@@ -24,6 +24,7 @@
 
 int adjust_if_script(const char *orig_path, char *reloc_path, char **argv, char **interp_path, char ***new_argv, char *found_from_pathsearch);
 int exec_pathsearch(int ldcsid, const char *orig_exec, char **new_exec, int *errcode, char **orig_file_abspath);
+int calc_static_tls(const char *orig_exec, const char **envp, char **glibc_tunables_env_value, int *updated_existing_environ);
 int isExecExcluded(const char *fname);
 int get_dirlists(char ***prefixes, char ***eexecs);
 

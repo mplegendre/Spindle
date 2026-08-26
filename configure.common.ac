@@ -119,6 +119,15 @@ else
 fi
 AC_DEFINE_UNQUOTED([NEWTHREAD_LOCALE_BUG],[$LOCALE_FAULT_BUG],[Defined if GLIBC has locale TLS bug])
 
+AC_MSG_CHECKING([for static tls glibc bug])
+if ${SPINDLE_SOURCE_ROOT}/scripts/static_tls_test/run_test.sh ${CC} "${CCFLAGS}" ${SPINDLE_SOURCE_ROOT} ${SPINDLE_BUILD_ROOT}; then
+  STATIC_TLS_BUG=1
+  AC_MSG_RESULT([yes])
+else
+  STATIC_TLS_BUG=0
+  AC_MSG_RESULT([no])
+fi
+AC_DEFINE_UNQUOTED([STATIC_TLS_ALLOC_BUG],[$STATIC_TLS_BUG],[Defined if GLIBC has static TLS allocation bug])
 
 #OS Detection
 AC_ARG_ENABLE(bluegene,

@@ -28,6 +28,7 @@
 #include "client_heap.h"
 #include "client_api.h"
 #include "config.h"
+#include "spindle_launch.h"
 
 static int is_script(int fd, char *path)
 {
@@ -198,7 +199,6 @@ int adjust_if_script(const char *orig_path, char *reloc_path, char **argv, char 
    for (i = 0; i < interp_argc; i++) {
       (*new_argv)[j++] = spindle_strdup(interpreter_args[i]);
    }
-
    if (found_from_pathsearch) {
       (*new_argv)[j++] = spindle_strdup(found_from_pathsearch);
    }
@@ -219,6 +219,154 @@ int adjust_if_script(const char *orig_path, char *reloc_path, char **argv, char 
    bare_printf3("\n");
    spindle_free(interpreter_args);
 
+   return 0;
+}
+
+#define TLSVAR "glibc.rtld.optional_static_tls"
+#define TLSVAR_ALIGNMENT "glibc.rtld.optional_static_tls_alignment"
+static void update_existing_glibc_tunables(ssize_t tls_needed, size_t tls_alignment, const char *glibc_tunables, char **glibc_tunables_env_value)
+{
+   char *s, *state, *d, *newstr;
+   size_t newstr_cur = 0, newstr_size, alignment_needed;
+   ssize_t existing_tls_size = -1, existing_tls_alignment = -1;
+   int result;
+   state = NULL;
+   d = strdup(glibc_tunables);
+
+   newstr_size = strlen(glibc_tunables) + 128;
+   newstr = (char *) malloc(newstr_size);
+   for (s = strtok_r(d, ":", &state); s != NULL; s = strtok_r(NULL, ":", &state)) {
+      if (strncmp(s, TLSVAR "=", strlen(TLSVAR "=")) == 0) {
+         if (existing_tls_size != -1)
+            continue;
+         if (newstr_cur != 0) { //Add a colon if not at the first entry
+            snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+            newstr_cur++;
+         }
+         sscanf(s, TLSVAR "=%zi", &existing_tls_size);
+         if (existing_tls_size > tls_needed)
+            tls_needed = existing_tls_size + 4096;
+         result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR "=%zu", tls_needed);
+         newstr_cur += result;
+         assert(newstr_cur <= newstr_size);
+         continue;
+      }
+      
+      if (strncmp(s, TLSVAR_ALIGNMENT "=", strlen(TLSVAR_ALIGNMENT "=")) == 0) {
+         if (existing_tls_alignment != -1)
+            continue;
+         if (newstr_cur != 0) { //Add a colon if not at the first entry
+            snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+            newstr_cur++;
+         }
+         sscanf(s, TLSVAR_ALIGNMENT "=%zi", &existing_tls_alignment);
+         alignment_needed = (existing_tls_alignment > tls_alignment) ? existing_tls_alignment : tls_alignment;
+         result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR_ALIGNMENT "=%zu", alignment_needed);
+         newstr_cur += result;
+         assert(newstr_cur <= newstr_size);
+         continue;
+      }
+      
+      if (newstr_cur != 0) {
+         snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+         newstr_cur++;
+      }
+      result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, "%s", s);
+      newstr_cur += result;
+      assert(newstr_cur <= newstr_size);
+      continue;
+   }
+   if (existing_tls_size == -1) {
+      if (newstr_cur != 0) {
+         snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+         newstr_cur++;
+      }
+      result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR "=%zu", tls_needed);
+      newstr_cur += result;
+   }
+   if (existing_tls_alignment == -1) {
+      if (newstr_cur != 0) {
+         snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+         newstr_cur++;
+      }
+      result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR_ALIGNMENT "=%zu", tls_alignment);
+      newstr_cur += result;
+   }
+   free(d);
+   *glibc_tunables_env_value = newstr;
+}
+
+void setup_new_glibc_tunables(ssize_t tls_needed, size_t tls_alignment, char **glibc_tunables_env_value)
+{
+   size_t val_size = 128;
+   char *val = (char *) spindle_malloc(val_size);
+   snprintf(val, val_size, TLSVAR "%s=%zu:%s=%zu", TLSVAR, tls_needed, TLSVAR_ALIGNMENT, tls_alignment);
+   *glibc_tunables_env_value = val;
+}
+
+
+//Magic constants from GLIBC. 
+#define DEFAULT_TLS_STATIC_SURPLUS 1664
+#define DEFAULT_ALIGNMENT 64
+
+int calc_static_tls(const char *orig_exec, const char **envp, char **glibc_tunables_env_value, int *updated_existing_environ)
+{
+   const char *ld_preload = NULL, *ld_library_path = NULL, *glibc_tunables = NULL;
+   char cwd[MAX_PATH_LEN+1];
+   int i, result;
+   ssize_t tls_size, tls_alignment;
+#if !defined(STATIC_TLS_ALLOC_BUG)
+   *glibc_tunables_env_value = NULL;
+   *updated_existing_environ = 0;
+   return 0;
+#endif
+
+   if (envp) {
+      for(i = 0; envp[i] != NULL; i++) {
+         if (strncmp(envp[i], "LD_LIBRARY_PATH=", strlen("LD_LIBRARY_PATH=")) == 0)
+            ld_library_path = envp[i] + strlen("LD_LIBRARY_PATH=");
+         if (strncmp(envp[i], "LD_PRELOAD=", strlen("LD_PRELOAD=")) == 0)
+            ld_preload = envp[i] + strlen("LD_PRELOAD=");
+         if (strncmp(envp[i], "GLIBC_TUNABLES=", strlen("GLIBC_TUNABLES=")) == 0)
+            glibc_tunables = envp[i] + strlen("GLIBC_TUNABLES=");
+      }
+   }
+   else {
+      ld_library_path = getenv("LD_LIBRARY_PATH");
+      ld_preload = getenv("LD_PRELOAD");
+      glibc_tunables = getenv("GLIBC_TUNABLES");
+   }
+   getcwd(cwd, MAX_PATH_LEN+1);
+
+   debug_printf2("calc_static_tls for %s\n", orig_exec);
+   result = send_static_tls_query(ldcsid, orig_exec, ld_library_path, ld_preload, cwd, &tls_size, &tls_alignment);
+   if (result == -1 || tls_size == -1) {
+      tls_size = 0;
+      tls_alignment = 0;
+      debug_printf("Could not compute TLS. got size %lu/+%lu\n", (unsigned long) tls_size, (unsigned long) tls_alignment);
+      return 0;
+   }
+   
+   if (tls_size < DEFAULT_TLS_STATIC_SURPLUS && tls_alignment < DEFAULT_ALIGNMENT) {
+      debug_printf2("Requested TLS size and alignment %lu/+%lu is less than defaults %lu/+%lu\n",
+                    (unsigned long) tls_size, (unsigned long) tls_alignment,
+                    (unsigned long) DEFAULT_TLS_STATIC_SURPLUS, (unsigned long) DEFAULT_ALIGNMENT);
+      return 0;
+   }
+   if (tls_size == 0) {
+      *glibc_tunables_env_value = NULL;
+      if (updated_existing_environ) *updated_existing_environ = 0;
+   }
+   else if (glibc_tunables) {
+      update_existing_glibc_tunables(tls_size, tls_alignment, glibc_tunables, glibc_tunables_env_value);
+      if (updated_existing_environ) *updated_existing_environ = 1;
+   }
+   else {
+      setup_new_glibc_tunables(tls_size, tls_alignment, glibc_tunables_env_value);
+      if (updated_existing_environ) *updated_existing_environ = 0;
+   }
+
+   debug_printf2("Calculated static TLS size %zd and alignment %zd for %s\n", tls_size, tls_alignment, orig_exec);
    return 0;
 }
 

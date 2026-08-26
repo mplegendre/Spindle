@@ -16634,6 +16634,22 @@ cat >>confdefs.h <<_ACEOF
 _ACEOF
 
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for static tls glibc bug" >&5
+$as_echo_n "checking for static tls glibc bug... " >&6; }
+if ${SPINDLE_SOURCE_ROOT}/scripts/static_tls_test/run_test.sh ${CC} "${CCFLAGS}" ${SPINDLE_SOURCE_ROOT} ${SPINDLE_BUILD_ROOT}; then
+  STATIC_TLS_BUG=1
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }
+else
+  STATIC_TLS_BUG=0
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define STATIC_TLS_ALLOC_BUG $STATIC_TLS_BUG
+_ACEOF
+
 
 #OS Detection
 # Check whether --enable-bluegene was given.

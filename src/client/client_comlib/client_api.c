@@ -32,12 +32,12 @@
 #include "ldcs_api.h"
 #include "client_api.h"
 #include "client_heap.h"
+#include "static_tls.h"
 
 static struct lock_t comm_lock;
 
 #define COMM_LOCK do { if (lock(&comm_lock) == -1) return -1; } while (0)
 #define COMM_UNLOCK unlock(&comm_lock)
-
 
 int send_cachepath_query( int fd, char **chosen_realized_cachepath, char **chosen_parsed_cachepath){
    int rc = 0;
@@ -504,6 +504,50 @@ int send_pickone_query(int fd, char *key, int *result)
 
    *result = *((int *) message.data);
    debug_printf2("Pickone for '%s' returned %d\n", key, *result);
+   return 0;
+}
+
+int send_static_tls_query(int fd, const char *aout, const char *ld_library_path, const char *ld_preload, const char *cwd, ssize_t *tls_needed, ssize_t *tls_alignment)
+{
+   int result, size;
+   char *buffer;
+   ldcs_message_t message;
+
+   debug_printf2("Sending request for static TLS size needed for '%s' with ld_library_path='%s' ; ld_preload = '%s' ; cwd = '%s'\n",
+                 aout, ld_library_path, ld_preload, cwd);
+   *tls_needed = 0;
+   *tls_alignment = 0;
+   size = static_tls_info_encode_size_needed(aout, ld_library_path, ld_preload, cwd);
+   if (size < 2*sizeof(ssize_t))
+      size = 2*sizeof(ssize_t);
+
+   buffer = (char *) spindle_malloc(size);
+   result = static_tls_info_encode(aout, ld_library_path, ld_preload, cwd, buffer, size, &size);
+   if (result == -1) {
+      err_printf("Failed to encode static tls packet\n");
+      spindle_free(buffer);
+      return -1;
+   } 
+
+   message.header.type = LDCS_MSG_CLIENT_STATICTLS;
+   message.header.len = size;
+   message.data = buffer;
+
+   debug_printf3("Sending LDCS_MSG_CLIENT_STATICTLS for %s\n", aout);
+   COMM_LOCK;
+   client_send_msg(fd, &message);
+   client_recv_msg_static(fd, &message, LDCS_READ_BLOCK);
+   COMM_UNLOCK;
+   
+   if (message.header.type != LDCS_MSG_CLIENT_STATICTLS_RESP) {
+      err_printf("Unexpected response %d\n", message.header.type);
+      spindle_free(buffer);
+      return -1;
+   }
+   *tls_needed = *((ssize_t *) message.data);
+   *tls_alignment = *((ssize_t *) (message.data + sizeof(ssize_t)));
+   spindle_free(buffer);
+   debug_printf3("Recvd LDCS_MSG_CLIENT_STATICTLS_RESP for %s of size %zd and alignment %zd\n", aout, *tls_needed, *tls_alignment);
    return 0;
 }
 

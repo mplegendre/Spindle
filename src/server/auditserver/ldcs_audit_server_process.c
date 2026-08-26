@@ -167,6 +167,8 @@ int ldcs_audit_server_process(spindle_args_t *args)
    ldcs_process_data.completed_lstat_requests = new_requestor_list();
    ldcs_process_data.pending_ldso_requests = new_requestor_list();
    ldcs_process_data.completed_ldso_requests = new_requestor_list();
+   ldcs_process_data.pending_tls_requests = new_requestor_list();
+   ldcs_process_data.completed_tls_requests = new_requestor_list();
    ldcs_process_data.handling_bundle = 0;
    ldcs_process_data.exit_note_done = 0;
    ldcs_process_data.exit_on_client_close = 0;

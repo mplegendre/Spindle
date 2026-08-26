@@ -43,6 +43,8 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include "ccwarns.h"
 #include "parse_mounts.h"
 #include "exitnote.h"
+#include "static_tls.h"
+#include "filemngt_calc_static_tls.h"
 
 /** 
  * This file contains the "brains" of Spindle.  It's public interface,
@@ -183,6 +185,15 @@ static int handle_client_dirlists_req(ldcs_process_data_t *procdata, int nc);
 static int handle_close_client_query(ldcs_process_data_t *procdata, int nc);
 static int handle_alive_msg(ldcs_process_data_t *procdata, ldcs_message_t *msg);
 static int handle_chosen_cachepath_request(ldcs_process_data_t *procdata, int nc);
+static int handle_client_static_tls_req(ldcs_process_data_t *procdata, int nc, ldcs_message_t *msg);
+static int handle_tls_request(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, node_peer_t from);
+static int handle_calculate_total_static_tls_needed(static_tls_info_t *tlsinfo, ssize_t *tls_size, ssize_t *tls_alignment);
+static int handle_tls_send_request(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, char *tlskey, node_peer_t from);
+static int handle_tls_send_results(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, char *tlskey, ldcs_message_t *msg);
+static int handle_tls_process_result(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, char *tlskey, ssize_t tls_size, ssize_t tls_alignment);
+static int handle_send_client_static_tls_resp(ldcs_process_data_t *procdata, int nc, ssize_t tls_size, ssize_t tls_alignment);
+static int handle_static_tls_req(ldcs_process_data_t *procdata, ldcs_message_t *msg, node_peer_t from);
+static int handle_static_tls_resp(ldcs_process_data_t *procdata, ldcs_message_t *msg);
 
 extern void getValidCachePathByIndex( uint64_t validBitIdx, char **realizedCachePath, char **parsedCachePath, char **symbolicCachePath );
 /**
@@ -1902,6 +1913,8 @@ int handle_client_message(ldcs_process_data_t *procdata, int nc, ldcs_message_t 
          return handle_client_end(procdata, nc);
       case LDCS_MSG_CHOSEN_CACHEPATH_REQUEST:
          return handle_chosen_cachepath_request(procdata, nc);
+      case LDCS_MSG_CLIENT_STATICTLS:
+         return handle_client_static_tls_req(procdata, nc, msg);         
       default:
          err_printf("Received unexpected message from client %d: %d\n", nc, (int) msg->header.type);
          assert(0);
@@ -2003,6 +2016,10 @@ int handle_server_message(ldcs_process_data_t *procdata, node_peer_t peer, ldcs_
          return handle_crash_report_recv(procdata, peer, msg);
       case LDCS_MSG_CRASH_RESPONSE:
          return handle_crash_response_recv(procdata, peer, msg);
+      case LDCS_MSG_STATICTLS_RESP:
+         return handle_static_tls_resp(procdata, msg);
+      case LDCS_MSG_STATICTLS:
+         return handle_static_tls_req(procdata, msg, peer);
       default:
          err_printf("Received unexpected message from node: %d\n", (int) msg->header.type);
          assert(0);
@@ -3081,6 +3098,347 @@ static int handle_alive_msg(ldcs_process_data_t *procdata, ldcs_message_t *msg)
    }
 
    
+   return 0;
+}
+
+/**
+ * A client has requested a static TLS size calculation about an executable and its execution environment (LD_LIBRARY_PATH,
+ * LD_PRELOAD, CWD).
+ **/
+static int handle_client_static_tls_req(ldcs_process_data_t *procdata, int nc, ldcs_message_t *msg)
+{
+   int result;
+   static_tls_info_t *tlsinfo = NULL;
+   ldcs_client_t *client;
+
+   result = static_tls_info_decode(msg->data, msg->header.len, &tlsinfo);
+   if (result == -1) {
+      if (tlsinfo) 
+         static_tls_info_free(tlsinfo);
+      err_printf("Failed to decode TLS info packet\n");
+      return -1;
+   }
+
+   debug_printf("Client requested tls info for %s\n", tlsinfo->executable);
+   debug_printf2("Client tls execution environment is ld_library_path='%s' ; ld_preload='%s' ; cwd='%s'\n",
+      tlsinfo->ld_library_path, tlsinfo->ld_preload, tlsinfo->cwd);
+
+   client = procdata->client_table + nc;
+   assert(!client->tls_info);
+   client->tls_info = tlsinfo;
+
+   return handle_tls_request(procdata, tlsinfo, NODE_PEER_CLIENT);
+}
+
+/**
+ * We have a request for a static TLS calculation, either from the network or a client. Handle
+ * that request by either reading the info from cache, calculating it from disk, or requesting
+ * the info from up the network.
+ **/
+static int handle_tls_request(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, node_peer_t from)
+{
+   char *tls_key = NULL;
+   ssize_t tls_size, tls_align;
+   int tls_result, result;
+   debug_printf2("Processing needing to request TLS info for %s\n", tlsinfo->executable);
+   tls_key = static_tls_info_to_idstr(tlsinfo);
+   if (!tls_key) {
+      err_printf("Error calculating TLS key for executable %s\n", tlsinfo->executable);
+      tls_result = -1;
+      goto done;
+   }
+   result = static_tls_info_lookup(tlsinfo, &tls_size, &tls_align);
+   if (result != -1) {
+      debug_printf2("TLS info for %s was cached.\n", tlsinfo->executable);
+      tls_result = handle_tls_process_result(procdata, tlsinfo, tls_key, tls_size, tls_align);
+      goto done;
+   }
+   if (ldcs_audit_server_md_is_responsible(procdata, tls_key)) {
+      debug_printf2("Am responsible for TLS read of %s. Running calculation\n", tlsinfo->executable);
+      result = handle_calculate_total_static_tls_needed(tlsinfo, &tls_size, &tls_align);
+      if (result == -1) {
+         debug_printf("WARNING Failure calculating TLS size. Moving forward with TLS of 0\n");
+         tls_size = 0;
+         tls_align = 0;
+      }
+      tls_result = handle_tls_process_result(procdata, tlsinfo, tls_key, tls_size, tls_align);
+      goto done;
+   }
+
+   debug_printf2("Requesting TLS calculation from network\n");
+   result = handle_tls_send_request(procdata, tlsinfo, tls_key, from);
+   if (result == -1) {
+      err_printf("Could not send request for TLS\n");
+      tls_result = -1;
+      goto done;
+   }
+
+   tls_result = 0;
+done:
+   if (tls_key)
+      free(tls_key);
+   return tls_result;   
+}
+
+/**
+ * Go to disk and calculate the static TLS of an executable and its execution environment.
+ **/
+static int handle_calculate_total_static_tls_needed(static_tls_info_t *tlsinfo, ssize_t *tls_size, ssize_t *tls_alignment)
+{
+   ssize_t tls_result, tls_align;
+   int result;
+
+   result = calc_static_tls_for_executable(tlsinfo, &tls_result, &tls_align);
+   if (result == -1) {
+      debug_printf2("TLS could not be calculated for %s. Setting to 0.\n", tlsinfo->executable);
+      *tls_size = 0;
+      *tls_alignment = 0;
+      return 0;
+   }
+   *tls_size = tls_result;
+   *tls_alignment = tls_align;
+
+   return 0;
+}
+
+/**
+* Send a request for a static TLS calculation up the network.
+**/
+static int handle_tls_send_request(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, char *tlskey, node_peer_t from) {
+   char *buffer = NULL;
+   int buffer_size, result;
+   ldcs_message_t msg;
+
+   debug_printf("Sending request for TLS info of %s to parents\n", tlsinfo->executable);
+
+   if (been_requested(procdata->pending_tls_requests, tlskey)) {
+      debug_printf2("Request for TLS info is already pending\n");
+      return 0;
+   }
+
+   buffer_size = static_tls_info_encode_size_needed2(tlsinfo) + 1;
+   buffer = (char *) malloc(buffer_size);
+
+   result = static_tls_info_encode2(tlsinfo, buffer, buffer_size, &buffer_size);
+   if (result == -1) {
+      free(buffer);
+      err_printf("Error encoding TLS request packet for %s\n", tlsinfo->executable);
+      return -1;
+   }
+
+   msg.header.type = LDCS_MSG_STATICTLS;
+   msg.header.len = buffer_size;
+   msg.data = buffer;
+
+   add_requestor(procdata->pending_tls_requests, tlskey, from);
+   result = spindle_forward_query(procdata, &msg);
+   if (result == -1) {
+      err_printf("Could not forward request for TLS of %s\n", tlsinfo->executable);
+      free(buffer);
+      return -1;
+   }
+
+   free(buffer);
+   return 0;
+}
+
+/**
+ * Send the results of a TLS calculation to children nodes on the network.
+ **/
+static int handle_tls_send_results(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, char *tlskey, ldcs_message_t *msg)
+{
+   int result, global_result = 0;
+   node_peer_t *nodes = NULL;
+   int nodes_size, i;
+
+   if (peer_requested(procdata->completed_tls_requests, tlskey, NODE_PEER_ALL)) {
+      debug_printf2("Not sending TLS message for %s, because it's been broadcast\n", tlsinfo->executable);
+      return 0;
+   }
+
+   if (procdata->dist_model == LDCS_PUSH) {
+      debug_printf3("Pushing TLS message to all children\n");
+      result = spindle_broadcast_noncontig(procdata, msg, NULL, 0);
+      if (result == -1) {
+         err_printf("Could not broadcast TLS message\n");
+         global_result = -1;
+      }
+      add_requestor(procdata->completed_tls_requests, tlskey, NODE_PEER_ALL);
+   }
+   else if (procdata->dist_model == LDCS_PULL) {
+      debug_printf3("Sending TLS message to select children\n");
+      result = get_requestors(procdata->pending_tls_requests, tlskey, &nodes, &nodes_size);
+      if (result == -1) {
+         return 0;
+      }
+      debug_printf3("Sending TLS message %s to %d nodes who requested it\n", tlskey, nodes_size);
+      for (i = 0; i < nodes_size; i++) {
+         if (nodes[i] == NODE_PEER_CLIENT || nodes[i] == NODE_PEER_NULL)
+            continue;
+         if (peer_requested(procdata->completed_tls_requests, tlskey, nodes[i])) {
+            debug_printf3("Not sending message %s to child, because it was already sent\n", tlskey);
+            continue;
+         }
+         result = spindle_send_noncontig(procdata, msg, nodes[i], NULL, 0);
+         if (result == -1)
+            global_result = -1;
+         else
+            add_requestor(procdata->completed_tls_requests, tlskey, nodes[i]);
+      }
+   }
+   clear_requestor(procdata->pending_tls_requests, tlskey);
+
+   return global_result;
+}
+
+/**
+ * We have the result of a TLS calculation (whether by calculating it ourselves or from the network). Give that
+ * result to any clients and the and any network children who requested it.
+ */
+static int handle_tls_process_result(ldcs_process_data_t *procdata, static_tls_info_t *tlsinfo, char *tlskey, ssize_t tls_size, ssize_t tls_alignment)
+{
+   int result;
+   ldcs_message_t msg;
+   char *buffer = NULL;
+   int buffer_size = 0, global_error = 0, i;
+
+   //Send to network children   
+   buffer_size = static_tls_info_encode_size_needed2(tlsinfo);
+   buffer = (char *) malloc(buffer_size + 2*sizeof(ssize_t));
+   *((ssize_t *) buffer) = tls_size;
+   *((ssize_t *) (buffer + sizeof(ssize_t))) = tls_alignment;
+   result = static_tls_info_encode2(tlsinfo, buffer+2*sizeof(ssize_t), buffer_size, &buffer_size);
+   if (result == -1) {
+      err_printf("Error encoding TLS info for %s into result packet\n", tlsinfo->executable);
+      free(buffer);
+      return -1;
+   }
+   buffer_size += 2*sizeof(ssize_t);
+
+   msg.header.type = LDCS_MSG_STATICTLS_RESP;
+   msg.header.len = buffer_size;
+   msg.data = buffer;
+
+   result = handle_tls_send_results(procdata, tlsinfo, tlskey, &msg);
+   if (result == -1) {
+      err_printf("Could not send TLS message to children\n");
+      global_error = -1;
+   }
+   free(buffer);
+   buffer = NULL;
+
+   //Send to clients
+   for (i = 0; i < procdata->client_table_used; i++) {
+      ldcs_client_t *client= procdata->client_table + i;
+      if (client->state == LDCS_CLIENT_STATUS_FREE || client->state == LDCS_CLIENT_STATUS_ACTIVE_PSEUDO)
+         continue;
+      if (!client->tls_info)
+         continue;
+      if (client->tls_info == tlsinfo || static_tls_info_equal(client->tls_info, tlsinfo)) {
+         result = handle_send_client_static_tls_resp(procdata, i, tls_size, tls_alignment);
+         if (result == -1) {
+            err_printf("Error sending TLS info to client\n");
+            global_error = -1;
+         }
+      }
+   }
+   return global_error;
+}
+
+/**
+ * Send a TLS calculation result to a client.
+**/
+static int handle_send_client_static_tls_resp(ldcs_process_data_t *procdata, int nc, ssize_t tls_size, ssize_t tls_alignment)
+{
+   ldcs_message_t msg;
+   ldcs_client_t *client;
+   int result;
+   ssize_t tls_data[2];
+
+   client = procdata->client_table + nc;
+
+   tls_data[0] = tls_size;
+   tls_data[1] = tls_alignment;
+
+   msg.header.type = LDCS_MSG_CLIENT_STATICTLS_RESP;
+   msg.header.len = 2*sizeof(ssize_t);
+   msg.data = (char *) tls_data;
+
+   result = ldcs_send_msg(client->connid, &msg);
+   procdata->server_stat.clientmsg.cnt++;
+   procdata->server_stat.clientmsg.time += (ldcs_get_time() - client->query_arrival_time);
+   handle_close_client_query(procdata, nc);
+
+   static_tls_info_free(client->tls_info);
+   client->tls_info = NULL;
+   
+   return result;
+}
+
+/**
+ * We have a request to handle a TLS calculation from a child.
+ **/
+static int handle_static_tls_req(ldcs_process_data_t *procdata, ldcs_message_t *msg, node_peer_t from)
+{
+   int result;
+   static_tls_info_t *info = NULL;
+   
+   result = static_tls_info_decode(msg->data, msg->header.len, &info);
+   if (result == -1) {
+      err_printf("Could not decode TLS request message\n");
+      return -1;
+   }
+   debug_printf("Received TLS calculation request from network for %s\n", info->executable);
+   debug_printf2("Execution environment for tls calculation is LD_LIBRARY_PATH=%s ; LD_PRELOAD=%s ; CWD=%s\n",
+      info->ld_library_path, info->ld_preload, info->cwd);      
+
+   result = handle_tls_request(procdata, info, from);
+   if (result == -1) {
+      static_tls_info_free(info);
+      err_printf("Could not handle TLS request message\n");
+      return -1;
+   }
+
+   static_tls_info_free(info);
+   return 0;
+}
+
+/**
+ * We have a TLS calculation response from the network.
+ */
+static int handle_static_tls_resp(ldcs_process_data_t *procdata, ldcs_message_t *msg)
+{
+   int result;
+   static_tls_info_t *tlsinfo;
+   ssize_t tls_size, tls_alignment;
+   char *buffer;
+   char *tlskey;
+
+   tls_size = *((size_t *) msg->data);
+   tls_alignment = *((size_t *) (msg->data + sizeof(ssize_t)));
+   buffer = msg->data + 2*sizeof(ssize_t);
+   result = static_tls_info_decode(buffer, msg->header.len - 2*sizeof(ssize_t), &tlsinfo);
+   if (result == -1) {
+      err_printf("Error decoding TLS result packet\n");
+      return -1;
+   }
+
+   debug_printf("Received TLS calculation response for %s of size %ld and alignment %ld\n", tlsinfo->executable, tls_size, tls_alignment);
+   debug_printf2("Execution environment for tls response is LD_LIBRARY_PATH=%s ; LD_PRELOAD=%s ; CWD=%s\n",
+      tlsinfo->ld_library_path, tlsinfo->ld_preload, tlsinfo->cwd);      
+
+   tlskey = static_tls_info_to_idstr(tlsinfo);
+
+   result = handle_tls_process_result(procdata, tlsinfo, tlskey, tls_size, tls_alignment);
+   if (result == -1) {
+      err_printf("Could not handle processing TLS response\n");
+      static_tls_info_free(tlsinfo);
+      free(tlskey);
+      return -1;
+   }
+
+   static_tls_info_free(tlsinfo);
+   free(tlskey);   
    return 0;
 }
 

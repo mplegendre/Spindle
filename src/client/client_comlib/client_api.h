@@ -43,6 +43,7 @@ int send_dirlists_request(int fd, char **local_result, char **exece_result, char
 int send_procmaps_query(int fd, int pid, char *result);
 int send_pickone_query(int fd, char *key, int *result);
 int send_cachepath_query( int fd, char **chosen_symbolic_cachepath, char **chosen_parsed_cachepath);
+int send_static_tls_query(int fd, const char *aout, const char *ld_library_path, const char *ld_preload, const char *cwd, ssize_t *tls_needed, ssize_t *tls_alignment);
 
 int get_python_prefix(int fd, char **prefix);
 
