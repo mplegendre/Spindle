@@ -1,7 +1,7 @@
 noinst_PROGRAMS = libgenerator
 
 ABS_TEST_DIR = $(abspath $(top_builddir)/testsuite)
-BUILT_SOURCES = libtest10.so libtest11.so libtest12.so libtest13.so libtest14.so libtest15.so libtest16.so libtest17.so libtest18.so libtest19.so libtest20.so libtest50.so libtest100.so libtest500.so libtest1000.so libtest2000.so libtest4000.so libtest6000.so libtest8000.so libtest10000.so libtls1.c libtls2.c libtls3.c libtls4.c libtls5.c libtls6.c libtls7.c libtls8.c libtls9.c libtls10.c libtls11.c libtls12.c libtls13.c libtls14.c libtls15.c libtls16.c libtls17.c libtls18.c libtls19.c libtls20.c libsymlink.so libdepC.so libdepB.so libdepA.so libcxxexceptB.so libcxxexceptA.so origin_dir/liboriginlib.so origin_dir/origin_subdir/liborigintarget.so libtestoutput.so libfuncdict.so runTests run_driver run_driver_rm spindle.rc preload_file_list test_driver test_driver_libs retzero_rx retzero_r retzero_x retzero_ badinterp hello_r.py hello_x.py hello_rx.py hello_.py hello_l.py badlink.py spindle_exec_test spindle_deactivated.sh liblocal.so symbind_test interpreter_test interpreter_test_dir/interpreter_test_perl alias/aliastest.py exec_shell.sh exec_shell.tcsh exec_shell_expected_output exec_shell exec_shell_env.sh
+BUILT_SOURCES = libtest10.so libtest11.so libtest12.so libtest13.so libtest14.so libtest15.so libtest16.so libtest17.so libtest18.so libtest19.so libtest20.so libtest50.so libtest100.so libtest500.so libtest1000.so libtest2000.so libtest4000.so libtest6000.so libtest8000.so libtest10000.so libtls1.c libtls2.c libtls3.c libtls4.c libtls5.c libtls6.c libtls7.c libtls8.c libtls9.c libtls10.c libtls11.c libtls12.c libtls13.c libtls14.c libtls15.c libtls16.c libtls17.c libtls18.c libtls19.c libtls20.c libsymlink.so libdepC.so libdepB.so libdepA.so libcxxexceptB.so libcxxexceptA.so origin_dir/liboriginlib.so origin_dir/origin_subdir/liborigintarget.so libtestoutput.so libfuncdict.so runTests run_driver run_driver_rm spindle.rc preload_file_list test_driver test_driver_libs retzero_rx retzero_r retzero_x retzero_ badinterp hello_r.py hello_x.py hello_rx.py hello_.py hello_l.py badlink.py spindle_exec_test spindle_deactivated.sh liblocal.so symbind_test interpreter_test interpreter_test_dir/interpreter_test_perl alias/aliastest.py exec_shell.sh exec_shell.tcsh exec_shell_expected_output exec_shell exec_shell_env.sh libbigtls1024.so libbigtls204800.so libbigtls1048576.so
 
 BUILT_SOURCES += crash_test crash_test_fixedaddr crash_test_pie libcrashfuncs.so libcrashctor.so libcrashfixed.so run_crash_tests.sh
 
@@ -28,11 +28,11 @@ test_driver_libsLDFLAGS = -Wl,-E -L$(top_builddir)/testsuite $(MPI_CLDFLAGS) -L$
 REGLIB_SRC = $(srcdir)/registerlib.c
 LD_FUNCDICT = -L$(top_builddir)/testsuite -lfuncdict
 
-test_driver: $(test_driverSOURCES) $(REGLIB_SRC) libtestoutput.so libfuncdict.so
-	$(AM_V_CCLD) $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(MPICC) -o $@ $(test_driverSOURCES) $(REGLIB_SRC) -DSO_NAME=$@ $(test_driverCFLAGS) $(test_driverLDFLAGS) $(test_driverLDADD)
+test_driver: $(test_driverSOURCES) $(REGLIB_SRC) libtestoutput.so libfuncdict.so libbigtls1048576.so libbigtls204800.so libbigtls1024.so
+	$(AM_V_CCLD) $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(MPICC) -o $@ $(test_driverSOURCES) $(REGLIB_SRC) -DSO_NAME=$@ $(test_driverCFLAGS) $(test_driverLDFLAGS) $(test_driverLDADD) -lbigtls1048576 -lbigtls204800 -lbigtls1024
 
-test_driver_libs: $(test_driverSOURCES) $(REGLIB_SRC) libtestoutput.so libfuncdict.so libtest10.so libtest11.so libtest12.so libtest13.so libtest14.so libtest15.so libtest16.so libtest17.so libtest18.so libtest19.so libtest20.so libtest100.so libtest500.so libtest1000.so libtest2000.so libtest4000.so libtest6000.so libtest8000.so libtest10000.so libtls1.so libtls2.so libtls3.so libtls4.so libtls5.so libtls6.so libtls7.so libtls8.so libtls9.so libtls10.so libtls11.so libtls12.so libtls13.so libtls14.so libtls15.so libtls16.so libtls17.so libtls18.so libtls19.so libtls20.so libdepA.so libcxxexceptA.so libdepB.so libdepC.so libcxxexceptB.so origin_dir/liboriginlib.so
-	$(AM_V_CCLD) $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(MPICC) -o $@ $(test_driver_libsSOURCES) $(REGLIB_SRC) -DSO_NAME=$@ -DUSE_NEEDED $(test_driver_libsCFLAGS) $(test_driver_libsLDFLAGS) $(test_driver_libsLDADD)
+test_driver_libs: $(test_driverSOURCES) $(REGLIB_SRC) libtestoutput.so libfuncdict.so libtest10.so libtest11.so libtest12.so libtest13.so libtest14.so libtest15.so libtest16.so libtest17.so libtest18.so libtest19.so libtest20.so libtest100.so libtest500.so libtest1000.so libtest2000.so libtest4000.so libtest6000.so libtest8000.so libtest10000.so libtls1.so libtls2.so libtls3.so libtls4.so libtls5.so libtls6.so libtls7.so libtls8.so libtls9.so libtls10.so libtls11.so libtls12.so libtls13.so libtls14.so libtls15.so libtls16.so libtls17.so libtls18.so libtls19.so libtls20.so libdepA.so libcxxexceptA.so libdepB.so libdepC.so libcxxexceptB.so origin_dir/liboriginlib.so libbigtls1048576.so libbigtls204800.so libbigtls1024.so
+	$(AM_V_CCLD) $(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(MPICC) -o $@ $(test_driver_libsSOURCES) $(REGLIB_SRC) -DSO_NAME=$@ -DUSE_NEEDED $(test_driver_libsCFLAGS) $(test_driver_libsLDFLAGS) $(test_driver_libsLDADD) -lbigtls1048576 -lbigtls204800 -lbigtls1024
 
 libtest10.c: libgenerator
 	$(AM_V_GEN)./libgenerator libtest10.c 10 t10
@@ -385,6 +385,15 @@ badlink.py:
 alias/aliastest.py: 
 	$(AM_V_GEN)mkdir -p alias/real1/real2 ; echo "fail" > alias/aliastest.py ; echo "pass" > alias/real1/aliastest.py ; ln -s real1/real2 alias/lnk
 
+libbigtls1024.so: bigtls.c
+	$(AM_V_CCLD)$(CC) -o $@ -fPIC -shared $(CFLAGS) -Wall $< -DTLS_SIZE=1024
+
+libbigtls204800.so: bigtls.c
+	$(AM_V_CCLD)$(CC) -o $@ -fPIC -shared $(CFLAGS) -Wall $< -DTLS_SIZE=204800
+
+libbigtls1048576.so: bigtls.c
+	$(AM_V_CCLD)$(CC) -o $@ -fPIC -shared $(CFLAGS) -Wall $< -DTLS_SIZE=1048576
+
 spindle_deactivated.sh: spindle_deactivated_template.sh
 	$(AM_V_GEN)cp $< $@; chmod 700 $@
 
@@ -470,4 +479,5 @@ exec_shell_expected_output: $(srcdir)/exec_shell_expected_output_template
 exec_shell: $(srcdir)/exec_shell.c
 	$(AM_V_CCLD)$(CC) $(CFLAGS) -o $@ $<
 
-CLEANFILES = libtest10.c libtest11.c libtest12.c libtest13.c libtest14.c libtest15.c libtest16.c libtest17.c libtest18.c libtest19.c libtest20.c libtest10.so libtest50.c libtest50.so libtest100.c libtest100.so libtest500.c libtest500.so libtest1000.c libtest1000.so libtest2000.c libtest2000.so libtest4000.c libtest4000.so libtest6000.c libtest6000.so libtest8000.c libtest8000.so libtest10000.c libtest10000.so libsymlink.so libdepA.so libdepB.so libdepC.so libcxxexceptA.so libcxxexceptB.so libtestoutput.so libfuncdict.so runTests run_driver run_driver_rm spindle.rc test_driver test_driver_libs preload_file_list retzero_rx retzero_r retzero_x retzero_ badinterp hello_r.py hello_x.py hello_rx.py hello_.py hello_l.py badlink.py libtls1.c libtls2.c libtls3.c libtls4.c libtls5.c libtls6.c libtls7.c libtls8.c libtls9.c libtls10.c libtls11.c libtls12.c libtls13.c libtls14.c libtls15.c libtls16.c libtls17.c libtls18.c libtls19.c libtls20.c libtls1.so libtls2.so libtls3.so libtls4.so libtls5.so libtls6.so libtls7.so libtls8.so libtls9.so libtls10.so libtls11.so libtls12.so libtls13.so libtls14.so libtls15.so libtls16.so libtls17.so libtls18.so libtls19.so libtls20.so symbind_test libsymbind_a.so libsymbind_b.so libsymbind_c.so libsymbind_d.so libsymbind_e.so libsymbind_f.so libsymbind_g.so interpreter_test interpreter_test_dir/interpreter_test_perl alias exec_shell.sh exec_shell.tcsh exec_shell_env.sh exec_shell_expected_output exec_shell crash_test crash_test_fixedaddr crash_test_pie libcrashfuncs.so libcrashctor.so libcrashfixed.so run_crash_tests.sh
+CLEANFILES = libtest10.c libtest11.c libtest12.c libtest13.c libtest14.c libtest15.c libtest16.c libtest17.c libtest18.c libtest19.c libtest20.c libtest10.so libtest50.c libtest50.so libtest100.c libtest100.so libtest500.c libtest500.so libtest1000.c libtest1000.so libtest2000.c libtest2000.so libtest4000.c libtest4000.so libtest6000.c libtest6000.so libtest8000.c libtest8000.so libtest10000.c libtest10000.so libsymlink.so libdepA.so libdepB.so libdepC.so libcxxexceptA.so libcxxexceptB.so libtestoutput.so libfuncdict.so runTests run_driver run_driver_rm spindle.rc test_driver test_driver_libs preload_file_list retzero_rx retzero_r retzero_x retzero_ badinterp hello_r.py hello_x.py hello_rx.py hello_.py hello_l.py badlink.py libtls1.c libtls2.c libtls3.c libtls4.c libtls5.c libtls6.c libtls7.c libtls8.c libtls9.c libtls10.c libtls11.c libtls12.c libtls13.c libtls14.c libtls15.c libtls16.c libtls17.c libtls18.c libtls19.c libtls20.c libtls1.so libtls2.so libtls3.so libtls4.so libtls5.so libtls6.so libtls7.so libtls8.so libtls9.so libtls10.so libtls11.so libtls12.so libtls13.so libtls14.so libtls15.so libtls16.so libtls17.so libtls18.so libtls19.so libtls20.so symbind_test libsymbind_a.so libsymbind_b.so libsymbind_c.so libsymbind_d.so libsymbind_e.so libsymbind_f.so libsymbind_g.so interpreter_test interpreter_test_dir/interpreter_test_perl alias exec_shell.sh exec_shell.tcsh exec_shell_env.sh exec_shell_expected_output exec_shell crash_test crash_test_fixedaddr crash_test_pie libcrashfuncs.so libcrashctor.so libcrashfixed.so run_crash_tests.sh libbigtls204800.so libbigtls1048576.so
+
