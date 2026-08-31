@@ -111,21 +111,21 @@ AC_DEFINE_UNQUOTED([DTV_ALLOCATION_BUG],[$DTV_ALLOC_BUG],[Defined if GLIBC has a
 
 AC_MSG_CHECKING([for locale tls fault glibc bug])
 if ${SPINDLE_SOURCE_ROOT}/scripts/locale_tls_fault/tls_locale_fault.sh ${SPINDLE_SOURCE_ROOT}/scripts/locale_tls_fault ${SPINDLE_BUILD_ROOT}/locale_tls_fault $CC; then
-   LOCALE_FAULT_BUG=0
-   AC_MSG_RESULT([no])
-else
    LOCALE_FAULT_BUG=1
    AC_MSG_RESULT([yes])
+else
+   LOCALE_FAULT_BUG=0
+   AC_MSG_RESULT([no])
 fi
 AC_DEFINE_UNQUOTED([NEWTHREAD_LOCALE_BUG],[$LOCALE_FAULT_BUG],[Defined if GLIBC has locale TLS bug])
 
 AC_MSG_CHECKING([for static tls glibc bug])
 if ${SPINDLE_SOURCE_ROOT}/scripts/static_tls_test/run_test.sh ${CC} "${CCFLAGS}" ${SPINDLE_SOURCE_ROOT} ${SPINDLE_BUILD_ROOT}; then
-  STATIC_TLS_BUG=1
-  AC_MSG_RESULT([yes])
-else
   STATIC_TLS_BUG=0
   AC_MSG_RESULT([no])
+else
+  STATIC_TLS_BUG=1
+  AC_MSG_RESULT([yes])
 fi
 AC_DEFINE_UNQUOTED([STATIC_TLS_ALLOC_BUG],[$STATIC_TLS_BUG],[Defined if GLIBC has static TLS allocation bug])
 
