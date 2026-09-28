@@ -70,7 +70,9 @@ enum SpindleConfigID {
    confRunSession,
    confPatchLdso,
    confCrashDedup,
-   confCalcTLS
+   confCalcTLS,
+   confCrashAltstack,
+   confCrashLog
 };
 
 enum CmdlineShortOptions {
@@ -131,7 +133,9 @@ enum CmdlineShortOptions {
    shortPatchLdso = 299,
    shortCachePaths = 300,
    shortCrashDedup = 301,
-   shortCalcTLS = 302
+   shortCrashAltstack = 302,
+   shortCrashLog = 303,
+   shortCalcTLS = 304
 };
 
 enum CmdlineGroups {
