@@ -325,11 +325,17 @@ ldcs_message_t * ldcs_recv_msg_pipe(int fd, ldcs_read_block_t block ) {
   return(msg);
 }
 
-int ldcs_recv_msg_static_pipe(int fd, ldcs_message_t *msg, ldcs_read_block_t block) {
+//1MB
+#define MAX_MSG_SIZE 1048576
+
+int ldcs_recv_msg_pipe_internal(int fd, ldcs_message_t *msg, ldcs_read_block_t block, int alloc_buffer) {
   size_t n;
   int rc=0;
   msg->header.type=LDCS_MSG_UNKNOWN;
   msg->header.len=0;
+  static char *buffer = NULL;
+  static size_t buffer_size = 4096;
+  
   if ((fd<0) || (fd>fdlist_pipe_size) )  _error("wrong fd");
 
   n = _ldcs_read_pipe(fdlist_pipe[fd].in_fd,&msg->header,sizeof(msg->header), block);
@@ -340,6 +346,19 @@ int ldcs_recv_msg_static_pipe(int fd, ldcs_message_t *msg, ldcs_read_block_t blo
      msg->header.len = 0;
      msg->data = NULL;
      return(rc);
+  }
+
+  if (msg->header.len > MAX_MSG_SIZE) {
+     err_printf("Message size %lu was greater than MAX_MSG_SIZE. Likely malformed.\n", msg->header.len);
+     return -1;
+  }
+  if (alloc_buffer) {
+     if (!buffer || msg->header.len > buffer_size) {
+        buffer_size = msg->header.len > buffer_size ? msg->header.len : buffer_size;
+        buffer = (char *) realloc(buffer, buffer_size);
+     }
+     memset(buffer, 0, buffer_size);
+     msg->data = buffer;
   }
 
   if(msg->header.len>0) {
@@ -363,6 +382,14 @@ int ldcs_recv_msg_static_pipe(int fd, ldcs_message_t *msg, ldcs_read_block_t blo
 	       msg->header.len, msg->data );
 
   return(rc);
+}
+
+int ldcs_recv_msg_static_pipe(int fd, ldcs_message_t *msg, ldcs_read_block_t block) {
+   return ldcs_recv_msg_pipe_internal(fd, msg, block, 0);
+}
+
+int ldcs_recv_msg_dynamic_pipe(int fd, ldcs_message_t *msg, ldcs_read_block_t block) {
+   return ldcs_recv_msg_pipe_internal(fd, msg, block, 1);
 }
 
 size_t _ldcs_read_pipe(int fd, void *data, int bytes, ldcs_read_block_t block ) {

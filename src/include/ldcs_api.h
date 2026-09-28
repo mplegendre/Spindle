@@ -134,6 +134,7 @@ typedef struct ldcs_message_struct ldcs_message_t;
 int ldcs_send_msg(int connid, ldcs_message_t * msg);
 ldcs_message_t * ldcs_recv_msg(int fd, ldcs_read_block_t block);
 int ldcs_recv_msg_static(int fd, ldcs_message_t *msg, ldcs_read_block_t block);
+int ldcs_recv_msg_dynamic(int fd, ldcs_message_t *msg, ldcs_read_block_t block);
 int ldcs_get_aux_fd();
 
 int ldcs_create_server(char* location, number_t number);

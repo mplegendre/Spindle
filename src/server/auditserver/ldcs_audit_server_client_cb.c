@@ -35,10 +35,6 @@ extern int ldcs_socket_id_to_nc(int id, int fd, ldcs_process_data_t *process_dat
 
 int _ldcs_client_dump_info ( ldcs_process_data_t *ldcs_process_data );
 
-/* some message container */
-static  char buffer_in[MAX_PATH_LEN];
-/* static  char buffer_out[MAX_PATH_LEN]; */
-
 int _ldcs_client_CB ( int fd, int id, void *data ) {
   int rc=0;
   ldcs_process_data_t *ldcs_process_data = ( ldcs_process_data_t *) data ;
@@ -61,10 +57,10 @@ int _ldcs_client_CB ( int fd, int id, void *data ) {
   debug_printf3("Receiving message from client %d on fd %d\n", nc, fd);
   in_msg.header.type=LDCS_MSG_UNKNOWN;
   in_msg.header.len=0;
-  in_msg.data=buffer_in;
+  in_msg.data = NULL;
 
   /* get message from client */
-  ldcs_recv_msg_static(connid, &in_msg, LDCS_READ_BLOCK);
+  ldcs_recv_msg_dynamic(connid, &in_msg, LDCS_READ_BLOCK);
 
   /* printf("SERVER[%03d]: received message on connection connid=%d\n", nc, connid); */
   debug_printf3("received message on connection nc=%d connid=%d\n", nc, connid);
