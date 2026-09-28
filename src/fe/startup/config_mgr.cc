@@ -158,7 +158,7 @@ using namespace std;
 #define PYTHON_PREFIX_DEFAULT ""
 #endif
 
-#if defined(STATIC_TLS_ALLOC_BUG)
+#if defined(STATIC_TLS_ALLOC_BUG) && (STATIC_TLS_ALLOC_BUG!=0)
 #define DEFAULT_CALC_TLS "true"
 #else
 #define DEFAULT_CALC_TLS "false"
