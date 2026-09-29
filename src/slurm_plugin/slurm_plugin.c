@@ -333,6 +333,11 @@ static int forward_environment_to_job_control(spank_t spank)
        err = spank_job_control_setenv(spank, "TMPDIR", "/tmp", 1);
        if (err != ESPANK_SUCCESS) return -1;
    }
+   envVal = getenv("SPINDLE_NO_CRASH_DEDUP");
+   if (envVal) {
+       err = spank_job_control_setenv(spank, "SPINDLE_NO_CRASH_DEDUP", envVal, 1);
+       if (err != ESPANK_SUCCESS) return -1;
+   }   
 
    /* In the job control context, the SLURM_JOB_NODELIST incorrectly
     * contains the nodes of the STEP rather than the job, so we save

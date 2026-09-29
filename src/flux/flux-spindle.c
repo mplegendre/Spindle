@@ -568,6 +568,7 @@ static int sp_init (flux_plugin_t *p,
     const char *tmpdir;
     const char *test;
     const char *spindle_enabled;
+    const char *crash_log;
 
     if (!(shell = flux_plugin_get_shell (p))
         || !(h = flux_shell_get_flux (shell)))
@@ -586,6 +587,10 @@ static int sp_init (flux_plugin_t *p,
      */
     if ((test = flux_shell_getenv (shell, "SPINDLE_TEST")))
        setenv ("SPINDLE_TEST", test, 1);
+
+    /*  Pass through SPINDLE_NO_CRASH_DEDUP for crash handling disabling */
+    if ((crash_log = flux_shell_getenv(shell, "SPINDLE_NO_CRASH_DEDUP")))
+       setenv("SPINDLE_NO_CRASH_DEDUP", crash_log, 1);    
 
     debug_printf(1, "initializing spindle flux plugin\n");
 
