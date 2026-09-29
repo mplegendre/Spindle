@@ -239,9 +239,9 @@ static void crash_log_merge_entry(ldcs_process_data_t *procdata,
       e->exemplar_rank = (int) ent->exemplar;
    size_t pos = 0;
    for (j = 0; j < (int) ent->nranks; ++j) {
-      int32_t r, pid, host_len;
-      int64_t timestamp;
-      const char *hostname;
+      int32_t r = 0, pid = 0, host_len = 0;
+      int64_t timestamp = 0;
+      const char *hostname = NULL;
       crash_log_parse_row(ent->ranks, ent->ranks_len, &pos, &r, &pid, &timestamp,
                           &hostname, &host_len);
       crash_log_append_rank(e, r, pid, timestamp, hostname, (size_t) host_len);
