@@ -3327,6 +3327,8 @@ static int handle_tls_process_result(ldcs_process_data_t *procdata, static_tls_i
    ldcs_message_t msg;
    char *buffer = NULL;
    int buffer_size = 0, global_error = 0, i;
+   int *clients_sent_to = NULL;
+   int clients_sent_to_count = 0;
 
    debug_printf2("At top of tls_process_result with tlskey='%s'\n", tlskey);
    //Send to network children
@@ -3354,6 +3356,8 @@ static int handle_tls_process_result(ldcs_process_data_t *procdata, static_tls_i
    free(buffer);
    buffer = NULL;
 
+   clients_sent_to = (int *) malloc(sizeof(int) * procdata->client_table_used);
+   
    //Send to clients
    for (i = 0; i < procdata->client_table_used; i++) {
       ldcs_client_t *client= procdata->client_table + i;
@@ -3361,16 +3365,28 @@ static int handle_tls_process_result(ldcs_process_data_t *procdata, static_tls_i
          continue;
       if (!client->tls_info)
          continue;
+
       if (client->tls_info == tlsinfo || static_tls_info_equal(client->tls_info, tlsinfo)) {
          result = handle_send_client_static_tls_resp(procdata, i, tls_size, tls_alignment);
          if (result == -1) {
             err_printf("Error sending TLS info to client\n");
             global_error = -1;
          }
+         clients_sent_to[clients_sent_to_count++] = i;
       }
    }
+
+   //Free TLS info for any client we sent to
+   for (i = 0; i < clients_sent_to_count; i++) {
+      ldcs_client_t *client = procdata->client_table + clients_sent_to[i];
+      static_tls_info_free(client->tls_info);
+      client->tls_info = NULL;
+   }
+   free(clients_sent_to);
+   
    return global_error;
 }
+
 
 /**
  * Send a TLS calculation result to a client.
@@ -3396,9 +3412,6 @@ static int handle_send_client_static_tls_resp(ldcs_process_data_t *procdata, int
    procdata->server_stat.clientmsg.time += (ldcs_get_time() - client->query_arrival_time);
    handle_close_client_query(procdata, nc);
 
-   static_tls_info_free(client->tls_info);
-   client->tls_info = NULL;
-   
    return result;
 }
 
