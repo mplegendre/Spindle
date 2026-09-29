@@ -1,8 +1,11 @@
 #noinst_LTLIBRARIES = libaudit_server_msocket.la libaudit_server_cobo.la libserverbase.la
 noinst_LTLIBRARIES = libaudit_server_cobo.la libserverbase.la
 
-AM_CPPFLAGS = -I$(top_srcdir)/comlib -I$(top_srcdir)/cache -I$(top_srcdir)/../cobo -I$(top_srcdir)/../logging -I$(top_srcdir)/../include -I$(top_srcdir)/../utils -DLIBEXECDIR=\"$(pkglibexecdir)\" -DPROGLIBDIR=\"$(pkglibdir)\"
-LDADD = $(top_builddir)/cache/libldcs_cache.la -lrt 
+confdir = $(PKGSYSCONF_DIR)
+conf_DATA = spindle_crash_log_header.txt
+
+AM_CPPFLAGS = -I$(top_srcdir)/comlib -I$(top_srcdir)/cache -I$(top_srcdir)/../cobo -I$(top_srcdir)/../logging -I$(top_srcdir)/../include -I$(top_srcdir)/../utils -DLIBEXECDIR=\"$(pkglibexecdir)\" -DPROGLIBDIR=\"$(pkglibdir)\" -DPKGSYSCONFDIR=\"$(PKGSYSCONF_DIR)\"
+LDADD = $(top_builddir)/cache/libldcs_cache.la -lrt
 #AM_LDFLAGS = -all-static
 
 libserverbase_la_SOURCES = ldcs_audit_server_client_cb.c ldcs_audit_server_server_cb.c ldcs_audit_server_process.c ldcs_audit_server_filemngt.c ldcs_audit_server_handlers.c ldcs_audit_server_crash_handler.c ldcs_audit_server_crash_log.c ldcs_elf_read.c ldcs_audit_server_requestors.c ldcs_audit_server_numa.c msgbundle.c parse_mounts.cc cleanup_proc.cc translate_maps.c force_exit.c filemngt_calc_static_tls.c $(top_srcdir)/../utils/fileutil.c $(top_srcdir)/../utils/static_tls.c
@@ -15,3 +18,6 @@ LCD = $(top_builddir)/comlib
 COD = $(top_builddir)/cobo/
 #libaudit_server_msocket_la_LIBADD = $(LDADD) libserverbase.la
 libaudit_server_cobo_la_LIBADD = $(LDADD) libserverbase.la $(COD)/libldcs_cobo.la
+
+spindle_crash_log_header.txt: $(top_srcdir)/auditserver/spindle_crash_log_header_template.txt $(top_builddir)/Makefile
+	$(AM_V_GEN)cp $(top_srcdir)/auditserver/spindle_crash_log_header_template.txt $(top_builddir)/auditserver/spindle_crash_log_header.txt
