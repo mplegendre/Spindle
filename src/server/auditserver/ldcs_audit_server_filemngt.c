@@ -40,6 +40,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include "ccwarns.h"
 #include "cleanup_proc.h"
 #include "fileutil.h"
+#include "config.h"
 
 #if !defined(LIBEXECDIR)
 #error LIBEXECDIR must be defined

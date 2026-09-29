@@ -23,6 +23,7 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h> 
+#include <assert.h>
 
 #include "ldcs_api.h"
 #include "spindle_launch.h"
@@ -333,6 +334,12 @@ int ldcs_recv_msg_static_socket(int fd, ldcs_message_t *msg,  ldcs_read_block_t 
 	       msg->header.len,help );
   
   return(0);
+}
+
+int ldcs_recv_msg_dynamic_socket(int fd, ldcs_message_t *msg,  ldcs_read_block_t block)
+{
+   assert(0);
+   return -1;
 }
 
 int ldcs_get_aux_fd_socket()

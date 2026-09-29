@@ -290,3 +290,9 @@ int ldcs_recv_msg_static_biter(int connid, ldcs_message_t *msg, ldcs_read_block_
 
    return 0;   
 }
+
+int ldcs_recv_msg_dynamic_biter(int connid, ldcs_message_t *msg, ldcs_read_block_t block)
+{
+   assert(0);
+   return -1;
+}

@@ -28,6 +28,7 @@
 #include "client_heap.h"
 #include "client_api.h"
 #include "config.h"
+#include "spindle_launch.h"
 
 static int is_script(int fd, char *path)
 {
@@ -198,7 +199,6 @@ int adjust_if_script(const char *orig_path, char *reloc_path, char **argv, char 
    for (i = 0; i < interp_argc; i++) {
       (*new_argv)[j++] = spindle_strdup(interpreter_args[i]);
    }
-
    if (found_from_pathsearch) {
       (*new_argv)[j++] = spindle_strdup(found_from_pathsearch);
    }
@@ -222,44 +222,117 @@ int adjust_if_script(const char *orig_path, char *reloc_path, char **argv, char 
    return 0;
 }
 
-int exec_pathsearch(int ldcsid, const char *orig_exec, char **reloc_exec, int *errcode, char **orig_file_abspath)
+#define TLSVAR "glibc.rtld.optional_static_tls"
+#define TLSVAR_ALIGNMENT "glibc.rtld.optional_static_tls_alignment"
+static void update_existing_glibc_tunables(ssize_t tls_needed, size_t tls_alignment, const char *glibc_tunables, char **glibc_tunables_env_value)
 {
-   char *saveptr = NULL, *path, *cur;
-   char newexec[MAX_PATH_LEN+1];
+   char *s, *state, *d, *newstr;
+   size_t newstr_cur = 0, newstr_size, alignment_needed;
+   ssize_t existing_tls_size = -1, existing_tls_alignment = -1;
+   int result;
+   state = NULL;
+   d = strdup(glibc_tunables);
 
-   if (!orig_exec) {
-      err_printf("Null exec passed to exec_pathsearch\n");
-      *reloc_exec = NULL;
-      return -1;
+   newstr_size = strlen(glibc_tunables) + 128;
+   newstr = (char *) malloc(newstr_size);
+   for (s = strtok_r(d, ":", &state); s != NULL; s = strtok_r(NULL, ":", &state)) {
+      if (strncmp(s, TLSVAR "=", strlen(TLSVAR "=")) == 0) {
+         if (existing_tls_size != -1)
+            continue;
+         if (newstr_cur != 0) { //Add a colon if not at the first entry
+            snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+            newstr_cur++;
+         }
+         sscanf(s, TLSVAR "=%zi", &existing_tls_size);
+         if (existing_tls_size > tls_needed)
+            tls_needed = existing_tls_size + 4096;
+         result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR "=%zu", tls_needed);
+         newstr_cur += result;
+         assert(newstr_cur <= newstr_size);
+         continue;
+      }
+      
+      if (strncmp(s, TLSVAR_ALIGNMENT "=", strlen(TLSVAR_ALIGNMENT "=")) == 0) {
+         if (existing_tls_alignment != -1)
+            continue;
+         if (newstr_cur != 0) { //Add a colon if not at the first entry
+            snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+            newstr_cur++;
+         }
+         sscanf(s, TLSVAR_ALIGNMENT "=%zi", &existing_tls_alignment);
+         alignment_needed = (existing_tls_alignment > tls_alignment) ? existing_tls_alignment : tls_alignment;
+         result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR_ALIGNMENT "=%zu", alignment_needed);
+         newstr_cur += result;
+         assert(newstr_cur <= newstr_size);
+         continue;
+      }
+      
+      if (newstr_cur != 0) {
+         snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+         newstr_cur++;
+      }
+      result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, "%s", s);
+      newstr_cur += result;
+      assert(newstr_cur <= newstr_size);
+      continue;
    }
-   if (orig_file_abspath) {
-      *orig_file_abspath = NULL;
-   }   
+   if (existing_tls_size == -1) {
+      if (newstr_cur != 0) {
+         snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+         newstr_cur++;
+      }
+      result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR "=%zu", tls_needed);
+      newstr_cur += result;
+   }
+   if (existing_tls_alignment == -1) {
+      if (newstr_cur != 0) {
+         snprintf(newstr + newstr_cur, newstr_size - newstr_cur, ":");
+         newstr_cur++;
+      }
+      result = snprintf(newstr + newstr_cur, newstr_size - newstr_cur, TLSVAR_ALIGNMENT "=%zu", tls_alignment);
+      newstr_cur += result;
+   }
+   free(d);
+   *glibc_tunables_env_value = newstr;
+}
+
+void setup_new_glibc_tunables(ssize_t tls_needed, size_t tls_alignment, char **glibc_tunables_env_value)
+{
+   size_t val_size = 128;
+   char *val = (char *) spindle_malloc(val_size);
+   snprintf(val, val_size, "%s=%zu:%s=%zu", TLSVAR, tls_needed, TLSVAR_ALIGNMENT, tls_alignment);
+   *glibc_tunables_env_value = val;
+}
+
+char *find_path_component(int ldcsid, const char *orig_exec, int *errcode)
+{
+   char *saveptr = NULL, *path, *cur, *found_dir;
+   char newexec[MAX_PATH_LEN+1];
+   int access_denied_found = 0;
    
+   if (!orig_exec) {
+      return NULL;
+   }
+
+   /* Absolute or relative paths don't need PATH search */
    if (orig_exec[0] == '/' || orig_exec[0] == '.') {
-      get_relocated_file(ldcsid, (char *) orig_exec, 1, reloc_exec, errcode, NULL);
-      debug_printf3("exec_pathsearch translated %s to %s\n", orig_exec, *reloc_exec);
-      return 0;
+      return NULL;
    }
 
    path = getenv("PATH");
    if (!path) {
-      get_relocated_file(ldcsid, (char *) orig_exec, 1, reloc_exec, errcode, NULL);
-      debug_printf3("No path.  exec_pathsearch translated %s to %s\n", orig_exec, *reloc_exec);
-      return 0;
+      return NULL;
    }
    path = spindle_strdup(path);
 
-   debug_printf3("exec_pathsearch using path %s on file %s\n", path, orig_exec);
-   int found = 0;
-   int access_denied_found = 0;
+   debug_printf3("find_path_component using path %s on file %s\n", path, orig_exec);
    for (cur = strtok_r(path, ":", &saveptr); cur; cur = strtok_r(NULL, ":", &saveptr)) {
       struct stat buf;
       int exists = 0;
       snprintf(newexec, MAX_PATH_LEN, "%s/%s", cur, orig_exec);
       newexec[MAX_PATH_LEN] = '\0';
-      
-      debug_printf2("Exec search operation requesting file via stat: %s\n", newexec);
+
+      debug_printf2("Path search operation requesting file via stat: %s\n", newexec);
       int result = get_stat_result(ldcsid, newexec, 0, &exists, &buf);
       if (result == STAT_SELF_OPEN) {
          result = stat(newexec, &buf);
@@ -269,39 +342,179 @@ int exec_pathsearch(int ldcsid, const char *orig_exec, char **reloc_exec, int *e
          continue;
       if (buf.st_mode & S_IFDIR) {
          debug_printf3("Skipping file %s in pathsearch: directory\n", newexec);
-         access_denied_found = 1;         
+         access_denied_found = 1;
          continue;
       }
       if (!(buf.st_mode & 0111)) {
          debug_printf3("Skipping file %s in pathsearch: not executable\n", newexec);
-         access_denied_found = 1;
+         access_denied_found = 1;         
          continue;
       }
-      debug_printf2("File %s exists and has execute set, requesting full file\n", newexec);
-      get_relocated_file(ldcsid, newexec, 1, reloc_exec, errcode, NULL);
-      debug_printf2("Exec search request returned %s -> %s\n", newexec, *reloc_exec ? *reloc_exec : "NULL");
-      if (*reloc_exec) {
-         if (orig_file_abspath) {
-            *orig_file_abspath = spindle_strdup(newexec);
-         }
-         found = 1;
-         break;
-      }
-      if (*errcode == EACCES) {
-         *reloc_exec = spindle_strdup(newexec);
-         found = 1;
-         break;
-      }
+      debug_printf2("File %s exists and has execute set in %s\n", newexec, cur);
+      found_dir = spindle_strdup(cur);
+      spindle_free(path);
+      return found_dir;
+   }
+   if (errcode) {
+      *errcode = access_denied_found ? EACCES : ENOENT;
    }
    spindle_free(path);
-   if (found)
-      return 0;
+   return NULL;
+}
 
-   if (access_denied_found) {
-      debug_printf3("Non executable file, setting errcode to %d\n", EACCES);
-      *errcode = EACCES;
+//Magic constants from GLIBC.
+#define DEFAULT_TLS_STATIC_SURPLUS 1664
+#define DEFAULT_ALIGNMENT 64
+
+int calc_static_tls(const char *orig_exec, const char *path_component, const char **envp, char **glibc_tunables_env_value, int *updated_existing_environ)
+{
+   const char *ld_preload = NULL, *ld_library_path = NULL, *glibc_tunables = NULL;
+   char cwd[MAX_PATH_LEN+1];
+   int i, result;
+   ssize_t tls_size, tls_alignment;
+
+   if (glibc_tunables_env_value)
+      *glibc_tunables_env_value = NULL;
+   if (updated_existing_environ)
+      *updated_existing_environ = 0;
+   if (!(opts & OPT_CALCTLS)) {
+      return 0;
+   }
+
+   if (envp) {
+      for(i = 0; envp[i] != NULL; i++) {
+         if (strncmp(envp[i], "LD_LIBRARY_PATH=", strlen("LD_LIBRARY_PATH=")) == 0)
+            ld_library_path = envp[i] + strlen("LD_LIBRARY_PATH=");
+         if (strncmp(envp[i], "LD_PRELOAD=", strlen("LD_PRELOAD=")) == 0)
+            ld_preload = envp[i] + strlen("LD_PRELOAD=");
+         if (strncmp(envp[i], "GLIBC_TUNABLES=", strlen("GLIBC_TUNABLES=")) == 0)
+            glibc_tunables = envp[i] + strlen("GLIBC_TUNABLES=");
+      }
+   }
+   else {
+      ld_library_path = getenv("LD_LIBRARY_PATH");
+      ld_preload = getenv("LD_PRELOAD");
+      glibc_tunables = getenv("GLIBC_TUNABLES");
+   }
+   getcwd(cwd, MAX_PATH_LEN+1);
+
+   debug_printf2("calc_static_tls for %s with path_component %s, LD_PRELOAD=%s\n", orig_exec, path_component ? path_component : "NULL", ld_preload ? ld_preload : "NULL");
+   result = send_static_tls_query(ldcsid, orig_exec, ld_library_path, ld_preload, cwd, path_component, &tls_size, &tls_alignment);
+   if (result == -1 || tls_size == -1) {
+      tls_size = 0;
+      tls_alignment = 0;
+      debug_printf("Could not compute TLS. got size %lu/+%lu\n", (unsigned long) tls_size, (unsigned long) tls_alignment);
+      return 0;
+   }
+   
+   if (tls_size < DEFAULT_TLS_STATIC_SURPLUS && tls_alignment < DEFAULT_ALIGNMENT) {
+      debug_printf2("Requested TLS size and alignment %lu/+%lu is less than defaults %lu/+%lu\n",
+                    (unsigned long) tls_size, (unsigned long) tls_alignment,
+                    (unsigned long) DEFAULT_TLS_STATIC_SURPLUS, (unsigned long) DEFAULT_ALIGNMENT);
+      return 0;
+   }
+   if (tls_size == 0) {
+      *glibc_tunables_env_value = NULL;
+      if (updated_existing_environ) *updated_existing_environ = 0;
+   }
+   else if (glibc_tunables) {
+      update_existing_glibc_tunables(tls_size, tls_alignment, glibc_tunables, glibc_tunables_env_value);
+      debug_printf3("Setting tunables to %s\n", *glibc_tunables_env_value);
+      if (updated_existing_environ) *updated_existing_environ = 1;
+   }
+   else {
+      setup_new_glibc_tunables(tls_size, tls_alignment, glibc_tunables_env_value);
+      debug_printf3("Setting tunables to %s\n", *glibc_tunables_env_value);
+      if (updated_existing_environ) *updated_existing_environ = 0;
+   }
+
+   debug_printf2("Calculated static TLS size %zd and alignment %zd for %s\n", tls_size, tls_alignment, orig_exec);
+   return 0;
+}
+
+int exec_pathsearch(int ldcsid, const char *orig_exec, char **reloc_exec, int *errcode, char **orig_file_abspath, char **path_component)
+{
+   char *found_path_component = NULL;
+   char *path;
+   char newexec[MAX_PATH_LEN+1];
+   int local_errcode = 0;
+
+   if (!orig_exec) {
+      err_printf("Null exec passed to exec_pathsearch\n");
+      *reloc_exec = NULL;
       return -1;
    }
+   if (orig_file_abspath) {
+      *orig_file_abspath = NULL;
+   }
+   if (path_component) {
+      *path_component = NULL;
+   }
+
+   /* Handle absolute/relative paths - no PATH search needed */
+   if (orig_exec[0] == '/' || orig_exec[0] == '.') {
+      get_relocated_file(ldcsid, (char *) orig_exec, 1, reloc_exec, errcode, NULL);
+      debug_printf3("exec_pathsearch translated %s to %s\n", orig_exec, *reloc_exec);
+      return 0;
+   }
+
+   /* Check if PATH is set */
+   path = getenv("PATH");
+   if (!path) {
+      /* No PATH set - try to relocate file as-is (execvp fallback behavior) */
+      get_relocated_file(ldcsid, (char *) orig_exec, 1, reloc_exec, errcode, NULL);
+      debug_printf3("No PATH.  exec_pathsearch translated %s to %s\n", orig_exec, *reloc_exec);
+      return 0;
+   }
+
+   /* Find which PATH component contains the executable */
+   found_path_component = find_path_component(ldcsid, orig_exec, &local_errcode);
+   if (!found_path_component) {
+      /* File not found in PATH */
+      *errcode = local_errcode;
+      return -1;
+   }
+
+   /* Build full path and relocate */
+   snprintf(newexec, MAX_PATH_LEN, "%s/%s", found_path_component, orig_exec);
+   newexec[MAX_PATH_LEN] = '\0';
+   
+   debug_printf2("File %s exists and has execute set, requesting full file\n", newexec);
+   get_relocated_file(ldcsid, newexec, 1, reloc_exec, errcode, NULL);
+   debug_printf2("Exec search request returned %s -> %s\n", newexec, *reloc_exec ? *reloc_exec : "NULL");
+   
+   if (*reloc_exec) {
+      if (orig_file_abspath) {
+         *orig_file_abspath = spindle_strdup(newexec);
+      }
+      if (path_component) {
+         *path_component = found_path_component;
+         found_path_component = NULL; /* Transfer ownership */
+      }
+      if (found_path_component) {
+         spindle_free(found_path_component);
+      }
+      return 0;
+   }
+   
+   /* Handle EACCES case */
+   if (*errcode == EACCES) {
+      *reloc_exec = spindle_strdup(newexec);
+      if (path_component) {
+         *path_component = found_path_component;
+         found_path_component = NULL; /* Transfer ownership */
+      }
+      if (found_path_component) {
+         spindle_free(found_path_component);
+      }
+      return 0;
+   }
+
+   if (found_path_component) {
+      spindle_free(found_path_component);
+   }
+
+   /* Not found */
    *errcode = ENOENT;
    return -1;
 }

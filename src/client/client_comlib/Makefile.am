@@ -1,6 +1,6 @@
 noinst_LTLIBRARIES =
 
-AM_CPPFLAGS = -I$(top_srcdir)/../logging -I$(top_srcdir)/../include
+AM_CPPFLAGS = -I$(top_srcdir)/../logging -I$(top_srcdir)/../include -I$(top_srcdir)/../utils
 
 BASE_SRCS = client_api.c client_heap.c client_wrappers.c
 

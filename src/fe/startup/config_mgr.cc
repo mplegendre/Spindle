@@ -161,6 +161,12 @@ using namespace std;
 #define PYTHON_PREFIX_DEFAULT ""
 #endif
 
+#if defined(STATIC_TLS_ALLOC_BUG) && (STATIC_TLS_ALLOC_BUG!=0)
+#define DEFAULT_CALC_TLS "true"
+#else
+#define DEFAULT_CALC_TLS "false"
+#endif
+
 #if BINARY_PATCH_LDSO == 1
 #define DEFAULT_PATCH_LDSO "true"
 #else
@@ -314,6 +320,8 @@ void initOptionsList()
      "The command to run rsh/ssh, when doing RSH startup mode." },
    { confCrashDedup, "crash-dedup", shortCrashDedup, groupMisc, cvBool, {}, DEFAULT_CRASH_DEDUP_STR,
      "Deduplicate coredumps by crash site, emitting only one coredump per unique site." },
+   { confCalcTLS, "calc-tls", shortCalcTLS, groupMisc, cvBool, {}, DEFAULT_CALC_TLS,
+     "Enable spindle's manual calculation of an application's IE TLS to work around a glibc bug." },
    { confCrashAltstack, "crash-altstack", shortCrashAltstack, groupMisc, cvBool, {}, DEFAULT_CRASH_ALTSTACK_STR,
      "Registers an alternate stack for signal handlers used by crash deduplication." },
    { confCrashLog, "crash-log", shortCrashLog, groupMisc, cvStringOptional, {}, "",
@@ -1026,6 +1034,8 @@ bool ConfigMap::toSpindleArgs(spindle_args_t &args, bool alloc_strs) const
          case confCrashDedup:
             setopt(args.opts, OPT_CRASH_HANDLER, boolresult);
             break;
+         case confCalcTLS:
+            setopt(args.opts, OPT_CALCTLS, boolresult);
          case confCrashAltstack:
             setopt(args.opts, OPT_CRASH_ALTSTACK, boolresult);
             break;

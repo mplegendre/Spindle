@@ -23,7 +23,9 @@
 #define SCRIPT_CANTEMULATE -4
 
 int adjust_if_script(const char *orig_path, char *reloc_path, char **argv, char **interp_path, char ***new_argv, char *found_from_pathsearch);
-int exec_pathsearch(int ldcsid, const char *orig_exec, char **new_exec, int *errcode, char **orig_file_abspath);
+int exec_pathsearch(int ldcsid, const char *orig_exec, char **new_exec, int *errcode, char **orig_file_abspath, char **path_component);
+char *find_path_component(int ldcsid, const char *executable_name, int *errcode);
+int calc_static_tls(const char *orig_exec, const char *path_component, const char **envp, char **glibc_tunables_env_value, int *updated_existing_environ);
 int isExecExcluded(const char *fname);
 int get_dirlists(char ***prefixes, char ***eexecs);
 

@@ -89,6 +89,10 @@ typedef enum {
    LDCS_MSG_CHOSEN_CACHEPATH,
    LDCS_MSG_CRASH_REPORT,
    LDCS_MSG_CRASH_RESPONSE,
+   LDCS_MSG_CLIENT_STATICTLS,
+   LDCS_MSG_CLIENT_STATICTLS_RESP,
+   LDCS_MSG_STATICTLS,
+   LDCS_MSG_STATICTLS_RESP,
    LDCS_MSG_CRASH_LOG,
    LDCS_MSG_CRASH_EXE,
    LDCS_MSG_CRASH_COREPATH,
@@ -114,7 +118,6 @@ typedef  enum {
    LDCS_MSG_MDIR_UNKNOWN
 } ldcs_msg_mdir_t;
 
-
 /* source, dest: -1: frontend 0...10000: MD server, > 10000 local client   */
 struct ldcs_message_header_struct
 {
@@ -134,6 +137,7 @@ typedef struct ldcs_message_struct ldcs_message_t;
 int ldcs_send_msg(int connid, ldcs_message_t * msg);
 ldcs_message_t * ldcs_recv_msg(int fd, ldcs_read_block_t block);
 int ldcs_recv_msg_static(int fd, ldcs_message_t *msg, ldcs_read_block_t block);
+int ldcs_recv_msg_dynamic(int fd, ldcs_message_t *msg, ldcs_read_block_t block);
 int ldcs_get_aux_fd();
 
 int ldcs_create_server(char* location, number_t number);

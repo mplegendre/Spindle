@@ -130,6 +130,7 @@ void la_activity (uintptr_t *cookie, unsigned int flag)
    }
 
    spindle_la_activity(cookie, flag);
+   debug_printf3("Returning from la_activity\n");
    return;
 }
 

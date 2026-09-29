@@ -63,6 +63,7 @@ extern "C" {
 #define OPT_CRASH_HANDLER ((opt_t) 1 << 32) /* Enables crash handler with coredump deduplication */
 #define OPT_CRASH_LOG ((opt_t) 1 << 33)     /* Write a log of crash sites and ranks at job end */
 #define OPT_CRASH_ALTSTACK ((opt_t) 1 << 34) /* Crash handler registers an alternate signal stack */
+#define OPT_CALCTLS       ((opt_t) 1 << 35) /* Enable spindle calculation of IE TLS instead of GLIBC calculation */
 
 #define OPT_SET_SEC(OPT, X) OPT |= (X << 19)
 #define OPT_GET_SEC(OPT) ((OPT >> 19) & 7)

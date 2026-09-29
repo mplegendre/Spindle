@@ -46,6 +46,7 @@ extern int RENAME(ldcs_send_msg) (int fd, ldcs_message_t *msg);
 extern int RENAME(ldcs_get_fd)(int fd);
 extern int RENAME(ldcs_get_aux_fd)();
 extern int RENAME(ldcs_recv_msg_static)(int connid, ldcs_message_t *msg, ldcs_read_block_t block);
+extern int RENAME(ldcs_recv_msg_dynamic)(int connid, ldcs_message_t *msg, ldcs_read_block_t block);
 extern int RENAME(ldcs_socket_id_to_nc)(int id, int fd, ldcs_process_data_t *process_data);
 
 int ldcs_create_server(char* location, number_t number)
@@ -86,6 +87,11 @@ int ldcs_get_fd(int fd)
 int ldcs_recv_msg_static(int connid, ldcs_message_t *msg, ldcs_read_block_t block)
 {
    return RENAME(ldcs_recv_msg_static)(connid, msg, block);
+}
+
+int ldcs_recv_msg_dynamic(int connid, ldcs_message_t *msg, ldcs_read_block_t block)
+{
+   return RENAME(ldcs_recv_msg_dynamic)(connid, msg, block);
 }
 
 int ldcs_get_aux_fd()
