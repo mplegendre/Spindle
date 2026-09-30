@@ -1060,6 +1060,14 @@ bool ConfigMap::toSpindleArgs(spindle_args_t &args, bool alloc_strs) const
    if (args.opts & OPT_DEBUG) {
       args.opts |= OPT_REMAPEXEC;
    }
+   if (getenv("SPINDLE_NO_CRASH_DEDUP")) {
+      debug_printf2("Disabling OPT_CRASH due to environment variable\n");
+      setopt(args.opts, OPT_CRASH_LOG, false);
+      setopt(args.opts, OPT_CRASH_HANDLER, false);
+      setopt(args.opts, OPT_CRASH_ALTSTACK, false);      
+   }
+
+
    return true;
 }
 

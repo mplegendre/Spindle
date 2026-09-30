@@ -1,0 +1,13 @@
+# This file was created by Spindle as part of core-file management. Each time
+# an application under Spindle would fault and dump core, Spindle will identify
+# the unique fault locations across a parallel job and allow only one core file
+# from each unique fault location. This prevents core file writing from
+# overwhelming the file system. This file is a legend of every fault seen,
+# and which core files represent which faults.
+#
+# Disable this by setting the environment variable SPINDLE_NO_CRASH_DEDUP to any
+# value, or by adding the line 'crash-dedup=false' to ~/.spindle/spindle.conf.
+#
+# The key for the below comma-seperated-values is:
+# rank,hostname,pid,timestamp,exe,site,exemplar,corepath
+

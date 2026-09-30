@@ -239,9 +239,9 @@ static void crash_log_merge_entry(ldcs_process_data_t *procdata,
       e->exemplar_rank = (int) ent->exemplar;
    size_t pos = 0;
    for (j = 0; j < (int) ent->nranks; ++j) {
-      int32_t r, pid, host_len;
-      int64_t timestamp;
-      const char *hostname;
+      int32_t r = 0, pid = 0, host_len = 0;
+      int64_t timestamp = 0;
+      const char *hostname = NULL;
       crash_log_parse_row(ent->ranks, ent->ranks_len, &pos, &r, &pid, &timestamp,
                           &hostname, &host_len);
       crash_log_append_rank(e, r, pid, timestamp, hostname, (size_t) host_len);
@@ -301,7 +301,29 @@ static int rank_cmp(const void *a, const void *b)
    return 0;
 }
 
-#define CRASH_LOG_HEADER "rank,hostname,pid,timestamp,exe,site,exemplar,corepath"
+#define DEFAULT_CRASH_LOG_HEADER "rank,hostname,pid,timestamp,exe,site,exemplar,corepath"
+static void write_crash_log_header(FILE *f)
+{
+   FILE *header;
+   char buffer[4096];
+   size_t bytes_read;
+
+   header = fopen(PKGSYSCONFDIR "/spindle_crash_log_header.txt", "r");
+   
+   if (header) {
+      for (;;) {
+         bytes_read = fread(buffer, 1, sizeof(buffer), header);
+         if (bytes_read <= 0)
+            break;
+         fwrite(buffer, 1, bytes_read, f);
+      }         
+      fclose(header);
+   }
+   else {
+      fputs(DEFAULT_CRASH_LOG_HEADER "\n", f);
+   }
+      
+}
 
 static void format_timestamp(int64_t timestamp, char *buf, size_t buflen)
 {
@@ -387,8 +409,9 @@ void crash_log_root_write(ldcs_process_data_t *procdata)
 
    /* If the crash log is empty (that is, we're the first writer),
     * write the CSV header. */
-   if (sb.st_size == 0)
-      fputs(CRASH_LOG_HEADER "\n", f);
+   if (sb.st_size == 0) {
+      write_crash_log_header(f);
+   }
 
    for (i = 0; i < procdata->crash_sites_count; ++i) {
       crash_site_entry_t *e = &procdata->crash_sites[i];

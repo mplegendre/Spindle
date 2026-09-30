@@ -202,7 +202,7 @@ parse_args() {
       case "$a" in
          --launcher=*) LAUNCHER="${a#*=}" ;;
          --nodes=*)    NODES="${a#*=}"    ;;
-         --scratch=*)  CRASH_TEST_SCRATCH="${a#*=}"  ;;
+         --scratch=*)  CRASH_TEST_SCRATCH=`realpath ${a#*=}`  ;;
          --modes=*)    MODES="${a#*=}"    ;;
          --session|--cross-exe|--orig-path)
             [ -z "$SESSION_TEST" ] || die "--session, --cross-exe and --orig-path are mutually exclusive"
@@ -388,14 +388,15 @@ log_check_header() {
       return 1
    fi
    IFS= read -r header <"$log"
-   if [ "$header" != "rank,hostname,pid,timestamp,exe,site,exemplar,corepath" ]; then
+
+   if [[ "$header" != "# "* ]]; then
       echo "   incorrect crash log header '$header'" >&2
       return 1
    fi
    return 0
 }
 
-log_rows() { tail -n +2 "$1"; }
+log_rows() { grep -v '^#' $1 | grep -v '^$' | tail -n +1 ; }
 
 # Split a log entry into ROW_RANK, ROW_HOST, ROW_PID, ROW_TS, ROW_EXE,
 # ROW_SITE, ROW_EXEMPLAR, ROW_COREPATH.  The site and corepath fields may
@@ -480,6 +481,12 @@ verify_crash_log() {
    local rc=0 total=0 line key
    local -A seen=() site_exemplar=() site_corepath=() site_exemplar_pid=()
    while IFS= read -r line; do
+      if [[ "$line" == "#"* ]]; then
+          continue
+      fi
+      if [[ "$line" == "" ]]; then
+          continue
+      fi
       parse_log_row "$line"
       key="$ROW_EXE|$ROW_SITE"
       total=$((total + 1))
