@@ -632,9 +632,11 @@ static int handle_read_directory(ldcs_process_data_t *procdata, char *dir)
    procdata->server_stat.procdir.bytes += rc;
    procdata->server_stat.procdir.time += (ldcs_get_time() - starttime);
 	
-   if (cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_EXISTS ||
-       cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_NOT_EXISTS) {
+   if (cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_EXISTS) {
       handle_process_directory(procdata, dir);
+      return 0;
+   }
+   if (cache_dir_result == LDCS_CACHE_DIR_PARSED_AND_NOT_EXISTS) {
       return 0;
    }
    else {
@@ -1676,6 +1678,7 @@ static int handle_process_directory(ldcs_process_data_t *procdata, const char *d
 {
    char local_dirname[MAX_PATH_LEN+1];
 
+   debug_printf2("Creating directory %s in cache\n", dirname);
    filemngt_calc_dirname(dirname, local_dirname, sizeof(local_dirname));
    spindle_mkdir_in_cache(local_dirname, procdata->cachepath);
    return 0;

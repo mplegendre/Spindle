@@ -362,8 +362,7 @@ static int spindle_mkdir_impl(const char *path, const char *cachepath)
          return -1;
       length = strlen(resolved) - physical_length;
       if (length > PATH_MAX - 1 - prefix_length) {
-         debug_printf3("WARNING: spindle_mkdir failing with ENAMETOOLONG on '%s'\n",
-                       resolved ? resolved : "[NULL]");
+         debug_printf3("WARNING: spindle_mkdir failing with ENAMETOOLONG on '%s'\n", resolved);
          errno = ENAMETOOLONG;
          return -1;
       }
