@@ -20,16 +20,10 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <string.h>
 #include <errno.h>
 
-#if !defined(USE_PLUGIN_DEBUG)
-#include "spindle_debug.h"
-#else
-#include "plugin_utils.h"
-#define SPINDLE_DEBUG_H_
-#endif
-
-#include "ldcs_api.h"
 #include "config.h"
 #include "spindle_debug.h"
+
+
 
 #if defined(TRACK_MKDIR)
 extern void track_mkdir(const char *dir);
@@ -53,12 +47,6 @@ extern int lookup_prev_mkdir(const char *dir);
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
-
-/* Keep filesystem calls in one place for the startup replacement layer. */
-static int spindle_mkdir_stat(const char *path, struct stat *buf)
-{
-   return stat(path, buf);
-}
 
 static int spindle_mkdir_lstat(const char *path, struct stat *buf)
 {
@@ -88,7 +76,7 @@ static int append(char *path, size_t *length, const char *part, size_t size)
    if (*length + separator > PATH_MAX - 1 ||
        size > PATH_MAX - 1 - *length - separator) {
       errno = ENAMETOOLONG;
-      debug_printf3("WARNING: apend failing with ENAMETOLONG on '%s' and '%s'\n", path, part);
+      debug_printf("WARNING: append failing with ENAMETOLONG on '%s' and '%s'\n", path, part);
       return -1;
    }
    if (separator)
@@ -117,23 +105,69 @@ static int parent(char path[PATH_MAX], size_t *length)
    return 0;
 }
 
-/* Resolve suffix onto path in place. path starts at "/", ".", or the already
- * resolved prefix; pending holds components not yet applied to path.
- *
- * Symlinks are expanded before later '..' components. With floor, '..' stops
- * at the prefix and symlink targets reached inside it must stay inside it.
- * required is set only while resolving the prefix, which must already exist. */
-static int resolve(const char *suffix, const char *floor, int required,
-                   char path[PATH_MAX])
+static int check_directory(const char *path, struct stat *existing_stat)
+{
+   struct stat st;
+   int error;
+   
+   if (!existing_stat) {
+      if (spindle_mkdir_lstat(path, &st) < 0) {
+         error = errno;
+         debug_printf("WARNING: Failed to stat %s: %s\n", path, strerror(error));
+         errno = error;
+         return -1;
+      }
+      existing_stat = &st;
+   }
+   if (!S_ISDIR(existing_stat->st_mode)) {
+      errno = ENOTDIR;
+      debug_printf("WARNING: %s is not a directory\n", path);
+      return -1;
+   }
+   if (existing_stat->st_uid != geteuid() || existing_stat->st_gid != getegid() ||
+       (existing_stat->st_mode & 07777) != 0700) {
+      errno = EACCES;
+      debug_printf("WARNING: Permissions error on %s\n", path);
+      return -1;
+   }
+   return 0;
+}
+
+/* EEXIST may come from another process; verify what is there either way. */
+static int make_directory(const char *path)
+{
+   int result;
+   if (spindle_mkdir_mkdir(path, 0700) < 0 && errno != EEXIST) {
+      debug_printf("WARNING: Failed to mkdir(%s)\n", path);
+      return -1;
+   }
+   result = check_directory(path, NULL);
+   if (result == -1) {
+      debug_printf("WARNING: check_directory failed here\n");
+      return -1;
+   }
+#if defined(TRACK_MKDIR)
+   track_mkdir(path);
+#endif
+   return result;
+}
+
+/* Process the path 'suffix' and make new directories. path starts at "/", ".", or the already
+   resolved cachepath. ../, ./, and symlinks are resolved and, if a cachepath is provided,
+   must stay within the cachepath. */
+static int mkdir_impl(const char *suffix, const char *cachepath, char path[PATH_MAX])
 {
    char pending[PATH_MAX], target[PATH_MAX];
-   size_t length = strlen(path), floor_length = floor ? strlen(floor) : 0;
-   size_t cursor = 0, pending_length = strlen(suffix);
-   int links = 0;
+   size_t length, cachepath_length;
+   size_t cursor = 0, pending_length;
+   int links = 0, result, error;
 
-   if (pending_length >= sizeof pending) {
+   length = strlen(path);
+   cachepath_length = cachepath ? strlen(cachepath) : 0;
+   pending_length = strlen(suffix);
+   if (pending_length >= sizeof(pending)) {
+      debug_printf("WARNING: mkdir_impl ENAMETOLONG on '%s'\n", suffix);
       errno = ENAMETOOLONG;
-      debug_printf3("WARNING: resolve ENAMETOLONG on '%s'\n", suffix);
       return -1;
    }
    /* Expansion can insert NUL separators, so pending_length, not strlen,
@@ -144,7 +178,7 @@ static int resolve(const char *suffix, const char *floor, int required,
       size_t start, end, old_length;
       size_t boundary;
       struct stat st;
-      ssize_t n;
+      ssize_t symlink_target_size;
 
       /* Skip empty components. An inserted NUL ends one symlink target;
        * check it before applying the caller's remaining components. */
@@ -152,29 +186,39 @@ static int resolve(const char *suffix, const char *floor, int required,
          ++cursor;
       if (cursor == pending_length)
          break;
+
       /* A NUL marks the end of a symlink target, before its caller's tail. */
       if (pending[cursor] == '\0') {
-         if (floor && !within(path, floor, floor_length)) {
-            debug_printf3("WARNING within failing with EACCES on '%s' in '%s'\n", path, floor);
+         if (cachepath && !within(path, cachepath, cachepath_length)) {
+            debug_printf("WARNING within failing with EACCES on '%s' in '%s'\n", path, cachepath);
             errno = EACCES;
             return -1;
          }
          ++cursor;
          continue;
       }
+      
       start = cursor;
       while (cursor < pending_length && pending[cursor] && pending[cursor] != '/')
          ++cursor;
       end = cursor;
-      if (end - start == 1 && pending[start] == '.')
+
+      /* Path component is a './'. Move on. */
+      if (end - start == 1 && pending[start] == '.') {
          continue;
+      }
+
+      /* Path component is a '../'. Use parent() to move up a directory as long, as we're not on the
+         cachepath root */
       if (end - start == 2 && pending[start] == '.' && pending[start + 1] == '.') {
-         /* Clamp at floor, just as '..' at '/' stays at '/'. */
-         if (!floor || !within(path, floor, floor_length) ||
-             length > floor_length) {
-            if (parent(path, &length) < 0) {
-               debug_printf3("resolv failing because could not determine parent of '%s' with floor '%s'\n",
-                             path ? path : "[NULL]", floor ? floor : "[NULL]");
+         /* Clamp at cachepath, just as '..' at '/' stays at '/'. */
+         if (!cachepath || length > cachepath_length) {
+            result = parent(path, &length);            
+            if (result < 0) {
+               error = errno;
+               debug_printf("WARNING mkdir_impl failing because could not determine parent of '%s' with cachepath '%s'\n",
+                             path ? path : "[NULL]", cachepath ? cachepath : "[NULL]");
+               errno = error;
                return -1;
             }
          }
@@ -186,52 +230,76 @@ static int resolve(const char *suffix, const char *floor, int required,
          return -1;
       /* Missing components are kept in the resolved path for the later
        * mkdir pass. Existing non-directories cannot be traversed. */
-      if (spindle_mkdir_lstat(path, &st) < 0) {
-         if (errno == ENOENT && !required)
-            continue;
-         debug_printf3("lstat failed during resolve for '%s'\n", path);
-         return -1;
-      }
-      if (!S_ISLNK(st.st_mode)) {
-         if (!S_ISDIR(st.st_mode)) {
-            errno = ENOTDIR;
-            debug_printf3("resolve failing for '%s' because ENOTDIR\n", path);
+      result = spindle_mkdir_lstat(path, &st);
+
+      /* Create the directory if the path component does not exist */
+      if (result == -1 && errno == ENOENT) {
+         result = make_directory(path);
+         if (result == -1) {
             return -1;
          }
          continue;
+      }      
+      if (result == -1) {
+         error = errno;
+         debug_printf("WARNING: lstat failed during mkdir_impl for '%s': %s\n", path, strerror(error));
+         errno = error;
+         return -1;
       }
+      if (S_ISDIR(st.st_mode)) {
+         if (cachepath && length > cachepath_length) {
+            /* We're strictly underneath the cachepath on an existing directory. Permissions should be locked down. */
+            result = check_directory(path, &st);
+            if (result == -1) {
+               error = errno;
+               debug_printf("WARNING: Permission error underneath cachepath %s: %s\n", path, strerror(error));
+               errno = error;
+               return -1;
+            }
+         }
+         continue;
+      }
+      if (!S_ISLNK(st.st_mode)) {
+         debug_printf("WARNING: mkdir_impl failing for '%s' because ENOTDIR\n", path);
+         errno = ENOTDIR;
+         return -1;
+      }
+      
       /* Check targets of links inside the prefix, even if the caller's
        * remaining path would later return inside. Links in a prefix alias
        * may resolve to an ancestor, so they get no boundary check here. */
-      boundary = floor && within(path, floor, floor_length);
+      boundary = cachepath && within(path, cachepath, cachepath_length);
       if (++links > 40) {
+         debug_printf("WARNING: mkdir_impl failing for '%s' because ELOOP\n", path);
          errno = ELOOP;
-         debug_printf3("resolve failing for '%s' because ELOOP\n", path);
          return -1;
       }
-      n = spindle_mkdir_readlink(path, target, sizeof target - 1);
-      if (n < 0) {
-         debug_printf3("resolve failing for '%s' because readlink failed\n", path);         
+      symlink_target_size = spindle_mkdir_readlink(path, target, sizeof(target) - 1);
+      if (symlink_target_size < 0) {
+         error = errno;
+         debug_printf("WARNING: mkdir_impl failing for '%s' because readlink failed: %s\n", path, strerror(error));
+         errno = error;
          return -1;
       }
-      if (n == 0) {
+      if (symlink_target_size == 0) {
+         debug_printf("WARNING: mkdir_impl failing for '%s' with ENOENT\n", path);
          errno = ENOENT;
-         debug_printf3("resolve failing for '%s' with ENOENT\n", path);
          return -1;
       }
-      if ((size_t)n + boundary + pending_length - end >= sizeof pending) {
+      if ((size_t)symlink_target_size + boundary + pending_length - end >= sizeof(pending)) {
+         debug_printf("WARNING: mkdir_impl failing for '%s' with ENAMETOOLONG\n", path);
          errno = ENAMETOOLONG;
-         debug_printf3("resolve failing for '%s' with ENAMETOOLONG\n", path);
          return -1;
       }
+      
       /* Replace the link with its target and keep the unread tail. The
        * optional NUL marks where this target ends. Nested expansions keep
        * earlier markers in that tail without a separate stack. */
-      memmove(pending + n + boundary, pending + end, pending_length - end);
-      memcpy(pending, target, n);
+      memmove(pending + symlink_target_size + boundary, pending + end, pending_length - end);
+      memcpy(pending, target, symlink_target_size);
       if (boundary)
-         pending[n] = '\0';
-      pending_length = (size_t)n + boundary + pending_length - end;
+         pending[symlink_target_size] = '\0';
+      pending_length = (size_t) symlink_target_size + boundary + pending_length - end;
       cursor = 0;
       /* Absolute targets restart at root; relative targets restart at the
        * link's parent, saved in old_length. */
@@ -245,191 +313,122 @@ static int resolve(const char *suffix, const char *floor, int required,
       }
    }
    /* Also reject an ordinary path that ends outside the prefix. */
-   if (floor && !within(path, floor, floor_length)) {
+   if (cachepath && !within(path, cachepath, cachepath_length)) {
+      debug_printf("WARNING: mkdir_impl failing for '%s' with EACCESs and cachepath of %s\n", path, cachepath);
       errno = EACCES;
-      debug_printf3("resolve failing for '%s' with EACCESs and floor of %s\n", path, floor);
       return -1;
    }
    return 0;
 }
 
-/* Leading relative '..' components name ancestors, not directories to make. */
-static size_t creation_start(const char *path)
+static ssize_t validate_path_under_cachepath(const char *path, const char *cachepath)
 {
-   size_t i = 0;
-
-   while (path[i] == '.') {
-      size_t dots = path[i + 1] == '.' ? 2 : 1;
-      if (path[i + dots] != '/' && path[i + dots] != '\0')
-         break;
-      i += dots;
-      if (path[i] == '/')
-         ++i;
-   }
-   return i;
-}
-
-static int check_directory(const char *path)
-{
-   struct stat st;
-
-   if (spindle_mkdir_stat(path, &st) < 0) {
-      debug_printf3("WARNING: Failed to stat %s\n", path);
+   ssize_t prefix_length;
+   prefix_length = strlen(cachepath);
+   while (prefix_length > 1 && cachepath[prefix_length - 1] == '/')
+      --prefix_length;
+   if (prefix_length >= PATH_MAX) {
+      debug_printf("WARNING: spindle_mkdir failing with ENAMETOOLONG on '%s'\n",
+                    path ? path : "[NULL]");
+      errno = ENAMETOOLONG;
       return -1;
    }
-   if (!S_ISDIR(st.st_mode)) {
-      errno = ENOTDIR;
-      debug_printf3("WARNING: %s is not a directory\n", path);
-      return -1;
-   }
-   if (st.st_uid != geteuid() || st.st_gid != getegid() ||
-       (st.st_mode & 07777) != 0700) {
+   if (!within(path, cachepath, prefix_length)) {
+      debug_printf("WARNING: spindle_mkdir failing with EACCESS on '%s' and '%s'\n",
+                    path ? path : "[NULL]", cachepath ? cachepath : "[NULL]");
       errno = EACCES;
-      debug_printf3("WARNING: Permissions error on %s\n", path);
       return -1;
    }
-   return 0;
+   return prefix_length;
 }
 
-/* EEXIST may come from another process; verify what is there either way. */
-static int make_directory(const char *path, int should_check_perms)
+static int check_mkdir_args(const char *path, const char *cachepath)
 {
-   int result;
-   if (spindle_mkdir_mkdir(path, 0700) < 0 && errno != EEXIST) {
-      debug_printf3("WARNING: Failed to mkdir(%s)\n", path);
-      return -1;
-   }
-   result = check_directory(path);
-   if (result == -1) {
-      debug_printf3("WARNING: check_directory failed here\n");
-      return -1;
-   }
-#if defined(TRACK_MKDIR)
-   track_mkdir(path);
-#endif
-   return result;
-}
-
-static int spindle_mkdir_impl(const char *path, const char *cachepath)
-{
-   char resolved[PATH_MAX], floor[PATH_MAX], literal[PATH_MAX];
-   size_t prefix_length, physical_length, length, i;
-
-   if (!path || !*path || (cachepath && !*cachepath)) {
-      debug_printf3("WARNING: spindle_mkdir failing with EINVAL on '%s' with cachepath '%s'\n",
+   if (!path || !*path || (cachepath && (cachepath[0] != '/' || path[0] != '/'))) {
+      debug_printf("WARNING: spindle_mkdir failing with EINVAL on '%s' with cachepath '%s'\n",
                     path ? path : "[NULL]", cachepath ? cachepath : "[NULL]");
       errno = EINVAL;
       return -1;
    }
-   if (cachepath) {
-      /* Resolve the existing prefix to establish a physical boundary. */
-      if (cachepath[0] != '/' || path[0] != '/') {
-         debug_printf3("WARNING: spindle_mkdir failing with EINVAL on '%s' and '%s'\n",
-                    path ? path : "[NULL]", cachepath ? cachepath : "[NULL]");
-         errno = EINVAL;
-         return -1;
-      }
-      prefix_length = strlen(cachepath);
-      while (prefix_length > 1 && cachepath[prefix_length - 1] == '/')
-         --prefix_length;
-      if (prefix_length >= PATH_MAX) {
-         debug_printf3("WARNING: spindle_mkdir failing with ENAMETOOLONG on '%s'\n",
-                       path ? path : "[NULL]");
-         errno = ENAMETOOLONG;
-         return -1;
-      }
-      if (!within(path, cachepath, prefix_length)) {
-         debug_printf3("WARNING: spindle_mkdir failing with EACCESS on '%s' and '%s'\n",
-                       path ? path : "[NULL]", cachepath ? cachepath : "[NULL]");
-         errno = EACCES;
-         return -1;
-      }
-      strcpy(resolved, "/");
-      if (resolve(cachepath, NULL, 1, resolved) < 0) {
-         debug_printf3("WARNING: resolve failed here\n");
-         return -1;
-      }
-      if (check_directory(resolved) < 0) {
-         debug_printf3("WARNING: resolve failed here\n");
-         return -1;
-      }
+   return 0;
+}
 
-      strcpy(floor, resolved);
-      physical_length = strlen(resolved);
-      /* Resolve below that boundary, then map back to the literal prefix
-       * so every mkdir call uses the spelling required by cleanup. */
-      if (resolve(path + prefix_length, floor, 0, resolved) < 0)
+static int spindle_mkdir_impl(const char *path, const char *cachepath)
+{
+   char resolved[PATH_MAX];
+   ssize_t prefix_length;
+   int error;
+
+   if (check_mkdir_args(path, cachepath) == -1)
+      return -1;
+
+   if (cachepath) {
+      /* Validate that path is prefixed by the cachepath */
+      prefix_length = validate_path_under_cachepath(path, cachepath);
+      if (prefix_length == -1) {
+         error = errno;
+         debug_printf("WARNING: Failed to validate that mkdir cache is under cachepath '%s' and '%s'\n",
+                       path, cachepath);
+         errno = error;
          return -1;
-      length = strlen(resolved) - physical_length;
-      if (length > PATH_MAX - 1 - prefix_length) {
-         debug_printf3("WARNING: spindle_mkdir failing with ENAMETOOLONG on '%s'\n", resolved);
-         errno = ENAMETOOLONG;
+      }     
+
+      strncpy(resolved, cachepath, sizeof(resolved));
+      if (mkdir_impl(path + prefix_length, cachepath, resolved) < 0) {
          return -1;
       }
-      memcpy(literal, cachepath, prefix_length);
-      memcpy(literal + prefix_length, resolved + physical_length, length + 1);
-      length += prefix_length;
-      i = prefix_length;
    } else {
       /* Relative paths stay relative; absolute paths start at root. */
       strcpy(resolved, path[0] == '/' ? "/" : ".");
-      if (resolve(path, NULL, 0, resolved) < 0) {
-         debug_printf3("WARNING: resolve failed here\n");         
+      if (mkdir_impl(path, NULL, resolved) < 0) {
          return -1;
       }
-      length = strlen(resolved);
-      memcpy(literal, resolved, length + 1);
-      i = creation_start(literal);
    }
 
-   /* Walk the resolved path once, creating and verifying each directory. */
-   while (i < length) {
-      int should_check_perms;
-      size_t end, next;
-      char saved;
-
-      while (i < length && literal[i] == '/')
-         ++i;
-      if (i == length)
-         break;
-      end = i;
-      while (end < length && literal[end] != '/')
-         ++end;
-      next = end;
-      while (next < length && literal[next] == '/')
-         ++next;
-      saved = literal[end];
-      literal[end] = '\0';
-      /* Public and system-owned directories may lead to an unprefixed
-       * path. Directories managed by this function must be private. */
-      if (!cachepath && next < length) {
-         struct stat st;
-         if (spindle_mkdir_stat(literal, &st) == 0 && S_ISDIR(st.st_mode)) {
-            literal[end] = saved;
-            i = end;
-            continue;
-         }
-      }
-
-      /* Only check permissions on the parent when making withinin the cachepath.
-         When making cachepath or commpaths we may be in some other directories */
-      should_check_perms = (cachepath != NULL);
-      if (make_directory(literal, should_check_perms) < 0) {
-         debug_printf3("WARNING: make_directory failed here\n");
-         return -1;
-      }
-      literal[end] = saved;
-      i = end;
-   }
    return 0;
 }
 
 int spindle_mkdir(const char *path)
 {
-   return spindle_mkdir_impl(path, NULL);
+   char resolved[PATH_MAX];
+
+   if (check_mkdir_args(path, NULL) == -1)
+      return -1;
+
+   strcpy(resolved, path[0] == '/' ? "/" : ".");
+   if (mkdir_impl(path, NULL, resolved) < 0) {
+      return -1;
+   }
+   
+   return 0;
 }
 
 int spindle_mkdir_in_cache(const char *path, const char *cachepath)
 {
-   return spindle_mkdir_impl(path, cachepath);
+   char resolved[PATH_MAX];
+   ssize_t prefix_length;
+   int error;
+
+   if (!cachepath)
+      return spindle_mkdir(path);
+
+   if (check_mkdir_args(path, cachepath) == -1)
+      return -1;
+
+   /* Validate that path is prefixed by the cachepath */
+   prefix_length = validate_path_under_cachepath(path, cachepath);
+   if (prefix_length == -1) {
+      error = errno;
+      debug_printf("WARNING: Failed to validate that mkdir on '%s' is under cachepath '%s'\n",
+                   path, cachepath);
+      errno = error;
+      return -1;
+   }     
+   
+   strncpy(resolved, cachepath, sizeof(resolved));
+   if (mkdir_impl(path + prefix_length, cachepath, resolved) < 0) {
+      return -1;
+   }
+
+   return 0;
 }

@@ -134,6 +134,7 @@ char *filemngt_calc_localname(char *global_name, calc_local_t reqtype)
    char *lastslash;
    size_t dirpart_size, filepart_size;
    ssize_t bytes_left;
+   int result, error;
 
    GCC7_DISABLE_WARNING("-Wformat-truncation");
    
@@ -176,7 +177,14 @@ char *filemngt_calc_localname(char *global_name, calc_local_t reqtype)
    filepart[sizeof(filepart)-1] = '\0';
 
    filemngt_calc_dirname(dirpart, target, sizeof(target));
-   spindle_mkdir_in_cache(target, _ldcs_audit_server_cachepath);
+   debug_printf3("Calling spindle_mkdir(%s, %s)\n", target, _ldcs_audit_server_cachepath);
+   result = spindle_mkdir_in_cache(target, _ldcs_audit_server_cachepath);
+   if (result == -1) {
+      error = errno;
+      err_printf("spindle_mkdir_in_cache(%s, %s) failed with error %s\n", target, _ldcs_audit_server_cachepath, strerror(error));
+      return NULL;
+   }
+   debug_printf3("Calculated local directory name for %s as %s and made directory\n", global_name, target);
 
    bytes_left = sizeof(target) - strlen(target);
    strncat(target, "/", --bytes_left);
