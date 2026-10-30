@@ -20,10 +20,14 @@ Place, Suite 330, Boston, MA 02111-1307 USA
 #include <string.h>
 #include <errno.h>
 
-#include "config.h"
+#if !defined(USE_PLUGIN_DEBUG)
 #include "spindle_debug.h"
+#else
+#include "plugin_utils.h"
+#define SPINDLE_DEBUG_H_
+#endif
 
-
+#include "config.h"
 
 #if defined(TRACK_MKDIR)
 extern void track_mkdir(const char *dir);
