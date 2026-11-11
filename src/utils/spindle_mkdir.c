@@ -357,41 +357,6 @@ static int check_mkdir_args(const char *path, const char *cachepath)
    return 0;
 }
 
-static int spindle_mkdir_impl(const char *path, const char *cachepath)
-{
-   char resolved[PATH_MAX];
-   ssize_t prefix_length;
-   int error;
-
-   if (check_mkdir_args(path, cachepath) == -1)
-      return -1;
-
-   if (cachepath) {
-      /* Validate that path is prefixed by the cachepath */
-      prefix_length = validate_path_under_cachepath(path, cachepath);
-      if (prefix_length == -1) {
-         error = errno;
-         debug_printf("WARNING: Failed to validate that mkdir cache is under cachepath '%s' and '%s'\n",
-                       path, cachepath);
-         errno = error;
-         return -1;
-      }     
-
-      strncpy(resolved, cachepath, sizeof(resolved));
-      if (mkdir_impl(path + prefix_length, cachepath, resolved) < 0) {
-         return -1;
-      }
-   } else {
-      /* Relative paths stay relative; absolute paths start at root. */
-      strcpy(resolved, path[0] == '/' ? "/" : ".");
-      if (mkdir_impl(path, NULL, resolved) < 0) {
-         return -1;
-      }
-   }
-
-   return 0;
-}
-
 int spindle_mkdir(const char *path)
 {
    char resolved[PATH_MAX];
@@ -399,6 +364,10 @@ int spindle_mkdir(const char *path)
    if (check_mkdir_args(path, NULL) == -1)
       return -1;
 
+#if defined(TRACK_MKDIR)
+   track_mkdir(path);
+#endif
+   
    strcpy(resolved, path[0] == '/' ? "/" : ".");
    if (mkdir_impl(path, NULL, resolved) < 0) {
       return -1;
