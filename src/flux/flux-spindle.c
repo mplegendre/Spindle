@@ -567,6 +567,7 @@ static int sp_init (flux_plugin_t *p,
     const char *debug;
     const char *tmpdir;
     const char *test;
+    const char *user;
     const char *spindle_enabled;
     const char *crash_log;
 
@@ -612,6 +613,15 @@ static int sp_init (flux_plugin_t *p,
     }
     setenv ("TMPDIR", tmpdir, 1);
 
+    user = flux_shell_getenv(shell, "USER");
+    if (user) {
+       setenv("USER", user, 1);
+    }
+    else {
+       unsetenv("USER");
+    }
+    
+    
     spindle_enabled = flux_shell_getenv (shell, "SPINDLE");
     if (spindle_enabled)
        setenv("SPINDLE", spindle_enabled, 1);
